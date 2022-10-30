@@ -1,0 +1,40 @@
+"""
+@author : Hyunwoong
+@when : 2019-10-22
+@homepage : https://github.com/gusdnd852
+"""
+from sklearn import model_selection
+import torch
+
+# GPU device setting
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+model_path = "seq2seq/models/model"
+
+# dataset settings
+SEQUENCE_LEN = 6
+TRAINING_RATIO = 0.80
+WIRELINE_LOGS_HEADER = ["GR", "NPHI"]
+LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
+
+# model parameter setting
+batch_size = 320
+max_len = 256
+d_model = 512
+n_layers = 6
+n_heads = 8
+ffn_hidden = 2048
+drop_prob = 0.1
+
+# optimizer parameter setting
+init_lr = 1e-4
+factor = 0.9
+adam_eps = 5e-9
+patience = 10
+warmup = 100
+epoch = 10
+clip = 1.0
+weight_decay = 5e-4
+inf = float("inf")
+
+correct_on_train = []
+correct_on_test = []

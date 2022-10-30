@@ -1,0 +1,11 @@
+torch>=1.1
+torchvision
+numpy
+tqdm
+tensorboard>=1.14
+torchtext
+pandas
+requests
+sklearn
+torchmetrics
+ 
