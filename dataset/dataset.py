@@ -37,6 +37,21 @@ WIRELINE_LOGS = [
     "RXO",
 ]
 
+original_lithology_numbers = {
+    30000: 0,
+    65030: 1,
+    65000: 2,
+    80000: 3,
+    74000: 4,
+    70000: 5,
+    70032: 6,
+    88000: 7,
+    86000: 8,
+    99000: 9,
+    90000: 10,
+    93000: 11,
+}
+
 
 class WellsDataset(Dataset):
     def __init__(
@@ -76,6 +91,10 @@ class WellsDataset(Dataset):
         self.sequence_len = sequence_len
         self.scaler = scaler
         self.output_len = output_len
+        # Define special symbols and indices
+        self.UNK_IDX, self.PAD_IDX, self.BOS_IDX, self.EOS_IDX = 0, 1, 2, 3
+        # Make sure the tokens are in order of their indices to properly insert them in vocab
+        self.special_symbols = ["<unk>", "<pad>", "<bos>", "<eos>"]
 
         if self.output_len == None:
             self.output_len = len(tuple(set(self.data_df[self.target[0]].to_numpy())))
@@ -175,23 +194,32 @@ class WellsDataset(Dataset):
 
     def get_lithology_numbers(self):
         lithology_numbers = {
-            30000: 0,
-            65030: 1,
-            65000: 2,
-            80000: 3,
-            74000: 4,
-            70000: 5,
-            70032: 6,
-            88000: 7,
-            86000: 8,
-            99000: 9,
-            90000: 10,
-            93000: 11,
+            self.UNK_IDX: self.UNK_IDX,
+            self.PAD_IDX: self.PAD_IDX,
+            self.BOS_IDX: self.BOS_IDX,
+            self.EOS_IDX: self.EOS_IDX,
+            30000: 4,
+            65030: 5,
+            65000: 6,
+            80000: 7,
+            74000: 8,
+            70000: 9,
+            70032: 10,
+            88000: 11,
+            86000: 12,
+            99000: 13,
+            90000: 14,
+            93000: 15,
         }
         return lithology_numbers
 
     def get_lithology_names(self):
+        # Define special symbols and indices
         lithology_names = {
+            self.UNK_IDX: "<unk>",
+            self.PAD_IDX: "<pad>",
+            self.BOS_IDX: "<bos>",
+            self.EOS_IDX: "<eos>",
             30000: "Sandstone",
             65030: "Sandstone/Shale",
             65000: "Shale",

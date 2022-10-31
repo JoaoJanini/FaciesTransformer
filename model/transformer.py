@@ -2,7 +2,7 @@ from torch import Tensor
 import torch
 import torch.nn as nn
 from torch.nn import Transformer
-from embedding import TokenEmbedding, PositionalEncoding
+from model.embedding import TokenEmbedding, PositionalEncoding
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -11,12 +11,10 @@ class Seq2SeqTransformer(nn.Module):
     def __init__(
         self,
         num_encoder_layers: int,
-        d_channel: int,
         d_input: int,
         num_decoder_layers: int,
         d_model: int,
         nhead: int,
-        src_vocab_size: int,
         tgt_vocab_size: int,
         dim_feedforward: int = 512,
         dropout: float = 0.1,
@@ -30,7 +28,7 @@ class Seq2SeqTransformer(nn.Module):
             nhead=nhead,
             num_decoder_layers=num_decoder_layers,
             dim_feedforward=dim_feedforward,
-            dropout=dropout
+            dropout=dropout,
         )
         self.generator = nn.Linear(d_model, tgt_vocab_size)
         self.tgt_tok_emb = TokenEmbedding(tgt_vocab_size, d_model)
@@ -40,32 +38,39 @@ class Seq2SeqTransformer(nn.Module):
     def forward(
         self,
         src: Tensor,
-        trg: Tensor,
+        tgt: Tensor,
         src_mask: Tensor,
         tgt_mask: Tensor,
         src_padding_mask: Tensor,
         tgt_padding_mask: Tensor,
+        memory_key_padding_mask: Tensor,
     ):
-        tgt_emb = self.positional_encoding(self.tgt_tok_emb(trg))
+        tgt_emb = self.positional_encoding(self.tgt_tok_emb(tgt))
         channel_encoding = self.embedding_input(src.transpose(-1, -2))
+        channel_encoding = channel_encoding.transpose(0, 1)
         outs = self.transformer(
             channel_encoding,
             tgt_emb,
-            src_mask=None,
-            tgt_mask=None,
-            src_padding_mask=None,
-            tgt_padding_mask=None,
-            memory_key_padding_mask=None,
+            None,
+            tgt_mask,
+            None,
+            None,
+            None,
         )
         return self.generator(outs)
 
     def encode(self, src: Tensor, src_mask: Tensor):
-        return self.transformer.encoder(self.embedding_input(src.transpose(-1, -2)), src_mask)
+        channel_encoding = self.embedding_input(src.transpose(-1, -2))
+        channel_encoding = channel_encoding.transpose(0, 1)
+        return self.transformer.encoder(
+           channel_encoding, src_mask
+        )
 
     def decode(self, tgt: Tensor, memory: Tensor, tgt_mask: Tensor):
         return self.transformer.decoder(
             self.positional_encoding(self.tgt_tok_emb(tgt)), memory, tgt_mask
         )
+
 
 def generate_square_subsequent_mask(sz):
     mask = (torch.triu(torch.ones((sz, sz), device=DEVICE)) == 1).transpose(0, 1)
@@ -76,7 +81,8 @@ def generate_square_subsequent_mask(sz):
     )
     return mask
 
-def create_mask(src, tgt, PAD_IDX):
+
+def create_mask(src, tgt, PAD_IDX=None):
     src_seq_len = src.shape[0]
     tgt_seq_len = tgt.shape[0]
 
