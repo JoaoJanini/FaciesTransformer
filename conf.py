@@ -8,7 +8,7 @@ model_path = "saved_models/model_"
 # dataset settings
 SEQUENCE_LEN = 4
 TRAINING_RATIO = 0.95
-WIRELINE_LOGS_HEADER = ["DEPTH_MD","GR", "NPHI"]
+WIRELINE_LOGS_HEADER = ["DEPTH_MD", "GR", "NPHI"]
 LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
 
 # model parameter setting

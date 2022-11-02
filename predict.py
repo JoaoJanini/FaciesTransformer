@@ -80,12 +80,13 @@ def tgt_transform(token_ids: List[int]):
         )
     )
 
+
 def src_transform(token_ids: List[int]):
     return torch.cat(
         (
             torch.ones(1, d_channel) * train_dataset.PAD_IDX,
             torch.tensor(token_ids),
-            torch.ones(1, d_channel) * train_dataset.PAD_IDX
+            torch.ones(1, d_channel) * train_dataset.PAD_IDX,
         )
     )
 
@@ -148,18 +149,20 @@ def greedy_decode(model, src, start_symbol):
     src = src.to(DEVICE)
     memory = model.encode(src, None)
     ys = torch.ones(1, 1).fill_(start_symbol).type(torch.long).to(DEVICE)
-    for i in range(SEQUENCE_LEN+1):
+    for i in range(SEQUENCE_LEN + 1):
         memory = memory.to(DEVICE)
-        tgt_mask = (generate_square_subsequent_mask(ys.size(0))
-                    .type(torch.bool)).to(DEVICE)
+        tgt_mask = (generate_square_subsequent_mask(ys.size(0)).type(torch.bool)).to(
+            DEVICE
+        )
         out = model.decode(ys, memory, tgt_mask)
         out = out.transpose(0, 1)
         prob = model.generator(out[:, -1])
         _, next_word = torch.max(prob, dim=1)
         next_word = next_word.item()
 
-        ys = torch.cat([ys,
-                        torch.ones(1, 1).type_as(src.data).fill_(next_word)], dim=0).type(torch.long)
+        ys = torch.cat(
+            [ys, torch.ones(1, 1).type_as(src.data).fill_(next_word)], dim=0
+        ).type(torch.long)
         if next_word == test_dataset.EOS_IDX:
             break
     return ys[1:-1]
@@ -169,7 +172,8 @@ def greedy_decode(model, src, start_symbol):
 def translate(model: torch.nn.Module, src_sentence: str):
     # src = text_transform[SRC_LANGUAGE](src_sentence).view(-1, 1)
     tgt_tokens = greedy_decode(
-        model, src_sentence, start_symbol=test_dataset.BOS_IDX).flatten()
+        model, src_sentence, start_symbol=test_dataset.BOS_IDX
+    ).flatten()
     return tgt_tokens
 
 
@@ -189,12 +193,13 @@ def translate_all(model: torch.nn.Module, data_loader: DataLoader):
 
         predicted_sequences = predicted_sequences + tgt_token.tolist()
         real_sequences = real_sequences + tgt_sequence[0].tolist()
-        if (i+1) % 1000 == 0:
-            comparison = torch.Tensor(predicted_sequences) == torch.Tensor(real_sequences)
-            print(f"Current Accuracy for {i+1} sequences: {sum(comparison.tolist())/len(real_sequences)}")
-
-
-
+        if (i + 1) % 1000 == 0:
+            comparison = torch.Tensor(predicted_sequences) == torch.Tensor(
+                real_sequences
+            )
+            print(
+                f"Current Accuracy for {i+1} sequences: {sum(comparison.tolist())/len(real_sequences)}"
+            )
 
     return predicted_sequences, real_sequences
 

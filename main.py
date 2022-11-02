@@ -89,12 +89,13 @@ def tgt_transform(token_ids: List[int]):
         )
     )
 
+
 def src_transform(token_ids: List[int]):
     return torch.cat(
         (
             torch.ones(1, d_channel) * train_dataset.PAD_IDX,
             torch.tensor(token_ids),
-            torch.ones(1, d_channel) * train_dataset.PAD_IDX
+            torch.ones(1, d_channel) * train_dataset.PAD_IDX,
         )
     )
 
@@ -231,7 +232,9 @@ def evaluate(model, iterator, criterion):
             loss = criterion(logits.reshape(-1, logits.shape[-1]), tgt_out.reshape(-1))
             epoch_loss += loss.item()
 
-            _, label_index = torch.max(logits.reshape(-1, logits.shape[-1]).data, dim=-1)
+            _, label_index = torch.max(
+                logits.reshape(-1, logits.shape[-1]).data, dim=-1
+            )
             acc = accuracy(label_index, tgt_out.reshape(-1))
         acc = accuracy.compute()
 

@@ -163,13 +163,13 @@ class Seq2SeqTransformer(nn.Module):
         )
         self.generator = nn.Linear(emb_size, tgt_vocab_size)
         self.src_tok_emb = TokenEmbedding(src_vocab_size, emb_size)
-        self.tgt_tok_emb = TokenEmbedding(tgt_vocab_size, emb_size) 
+        self.tgt_tok_emb = TokenEmbedding(tgt_vocab_size, emb_size)
         self.positional_encoding = PositionalEncoding(emb_size, dropout=dropout)
 
     def forward(
         self,
-        src: Tensor, # Shape: (src_len, batch_size)
-        trg: Tensor, # Shape: (src_len, batch_size)
+        src: Tensor,  # Shape: (src_len, batch_size)
+        trg: Tensor,  # Shape: (src_len, batch_size)
         src_mask: Tensor,
         tgt_mask: Tensor,
         src_padding_mask: Tensor,

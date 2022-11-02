@@ -62,9 +62,7 @@ class Seq2SeqTransformer(nn.Module):
     def encode(self, src: Tensor, src_mask: Tensor):
         channel_encoding = self.embedding_input(src.transpose(-1, -2))
         channel_encoding = channel_encoding.transpose(0, 1)
-        return self.transformer.encoder(
-           channel_encoding, src_mask
-        )
+        return self.transformer.encoder(channel_encoding, src_mask)
 
     def decode(self, tgt: Tensor, memory: Tensor, tgt_mask: Tensor):
         return self.transformer.decoder(
