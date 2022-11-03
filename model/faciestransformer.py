@@ -28,7 +28,7 @@ class Seq2SeqTransformer(nn.Module):
             nhead=nhead,
             num_decoder_layers=num_decoder_layers,
             dim_feedforward=dim_feedforward,
-            dropout=dropout,
+            dropout=dropout
         )
         self.generator = nn.Linear(d_model, tgt_vocab_size)
         self.tgt_tok_emb = TokenEmbedding(tgt_vocab_size, d_model)

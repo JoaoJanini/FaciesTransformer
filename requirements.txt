@@ -8,4 +8,5 @@ pandas
 requests
 sklearn
 torchmetrics
- 
+transformers
+accelerate
