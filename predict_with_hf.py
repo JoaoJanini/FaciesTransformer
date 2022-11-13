@@ -5,7 +5,10 @@ from model.faciestransformer import Seq2SeqTransformer, generate_square_subseque
 from torch.utils.data import DataLoader
 from dataset.dataset import WellsDataset
 from torch.utils.data import random_split
-from model.huggingface.custom_hf_transformer import SeqtoSeqForFaciesClassification, Seq2SeqConfig
+from model.huggingface.custom_hf_transformer import (
+    SeqtoSeqForFaciesClassification,
+    Seq2SeqConfig,
+)
 from conf import DEVICE
 from conf import (
     batch_size,
@@ -155,7 +158,7 @@ seq_to_seq_facies_config = Seq2SeqConfig(
     nhead=n_heads,
     tgt_vocab_size=tgt_vocab_size,
     dim_feedforward=ffn_hidden,
-    dropout=drop_prob
+    dropout=drop_prob,
 )
 
 seq_to_seq_facies_config.save_pretrained("custom_seq_to_seq_facies_config")

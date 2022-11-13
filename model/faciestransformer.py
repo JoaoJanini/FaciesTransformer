@@ -28,8 +28,10 @@ class Seq2SeqTransformer(nn.Module):
             nhead=nhead,
             num_decoder_layers=num_decoder_layers,
             dim_feedforward=dim_feedforward,
-            dropout=dropout
+            dropout=dropout,
         )
+        self.encoder = self.transformer.encoder
+        self.decoder = self.transformer.decoder
         self.generator = nn.Linear(d_model, tgt_vocab_size)
         self.tgt_tok_emb = TokenEmbedding(tgt_vocab_size, d_model)
         self.positional_encoding = PositionalEncoding(d_model, dropout=dropout)
@@ -58,6 +60,12 @@ class Seq2SeqTransformer(nn.Module):
             None,
         )
         return self.generator(outs)
+
+    def get_encoder(self):
+        return self.encoder
+
+    def get_decoder(self):
+        return self.decoder
 
     def encode(self, src: Tensor, src_mask: Tensor):
         channel_encoding = self.embedding_input(src.transpose(-1, -2))
