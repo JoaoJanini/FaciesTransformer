@@ -70,7 +70,7 @@ class FaciesConfig(PretrainedConfig):
     >>> # Accessing the model configuration
     >>> configuration = model.config
     ```"""
-    model_type = "Facies"
+    model_type = "facies_transformer_seq_2_seq"
     keys_to_ignore_at_inference = ["past_key_values"]
     attribute_map = {
         "num_attention_heads": "encoder_attention_heads",
@@ -79,7 +79,7 @@ class FaciesConfig(PretrainedConfig):
 
     def __init__(
         self,
-        vocab_size=50265,
+        vocab_size=12,
         max_position_embeddings=1024,
         encoder_layers=12,
         encoder_ffn_dim=4096,
@@ -91,6 +91,7 @@ class FaciesConfig(PretrainedConfig):
         decoder_layerdrop=0.0,
         activation_function="gelu",
         d_model=1024,
+        d_input=2,
         dropout=0.1,
         attention_dropout=0.0,
         activation_dropout=0.0,
@@ -108,6 +109,7 @@ class FaciesConfig(PretrainedConfig):
         **kwargs,
     ):
         self.vocab_size = vocab_size
+        self.d_input = d_input
         self.max_position_embeddings = max_position_embeddings
         self.d_model = d_model
         self.encoder_ffn_dim = encoder_ffn_dim

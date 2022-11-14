@@ -83,30 +83,15 @@ def sequential_transforms(*transforms):
 def tgt_transform(token_ids: List[int]):
     return torch.cat(
         (
-            torch.tensor([train_dataset.BOS_IDX]),
             torch.tensor(token_ids),
             torch.tensor([train_dataset.EOS_IDX]),
         )
     )
 
-
-def src_transform(token_ids: List[int]):
-    return torch.cat(
-        (
-            torch.ones(1, d_channel) * train_dataset.PAD_IDX,
-            torch.tensor(token_ids),
-            torch.ones(1, d_channel) * train_dataset.PAD_IDX,
-        )
-    )
-
-
 # src and tgt language text transforms to convert raw strings into tensors indices
 transforms = {}
 transforms["tgt"] = sequential_transforms(
     tgt_transform  # Add BOS/EOS and create tensor
-)
-transforms["src"] = sequential_transforms(
-    src_transform  # Add BOS/EOS and create tensor
 )
 
 # function to collate data samples into batch tesors

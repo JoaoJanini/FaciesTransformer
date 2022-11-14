@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+tmp_trainer
 # C extensions
 *.so
 data/*

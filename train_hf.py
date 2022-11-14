@@ -1,23 +1,16 @@
 from transformers import TrainingArguments, Trainer, logging
-from transformers import AutoModelForSequenceClassification
+from hf_sequence_to_sequence.model import FaciesForConditionalGeneration
+from hf_sequence_to_sequence.configuration import FaciesConfig
 import torchmetrics
 import math
 import time
 from torch import nn, optim
 from torch.optim import Adam
 import torch
-from model.transformer import Seq2SeqTransformer, create_mask
 from torch.utils.data import DataLoader
 from dataset.dataset import WellsDataset
 from torch.utils.data import random_split
 from utils import epoch_time
-import numpy as np
-from datasets import Dataset
-
-
-
-ds = Dataset.from_dict(dummy_data)
-ds.set_format("pt")
 from conf import DEVICE
 from conf import (
     batch_size,
@@ -40,8 +33,6 @@ from conf import (
     weight_decay,
     inf,
 )
-
-
 from conf import WIRELINE_LOGS_HEADER, LABEL_COLUMN_HEADER, SEQUENCE_LEN, TRAINING_RATIO
 from typing import List
 
@@ -61,11 +52,7 @@ test_dataset = WellsDataset(
     scaler=train_dataset.scaler,
     output_len=train_dataset.output_len,
 )
-seq_len, dataset_size = 512, 512
-dummy_data = {
-    "input_ids": np.random.randint(100, 30000, (dataset_size, seq_len)),
-    "labels": np.random.randint(0, 1, (dataset_size)),
-}
+
 
 DATA_LEN = train_dataset.train_len
 d_input = train_dataset.input_len
@@ -90,79 +77,34 @@ def sequential_transforms(*transforms):
 
 
 # function to add BOS/EOS and create tensor for input sequence indices
-def tgt_transform(token_ids: List[int]):
-    return torch.cat(
-        (
-            torch.tensor([train_dataset.BOS_IDX]),
-            torch.tensor(token_ids),
-            torch.tensor([train_dataset.EOS_IDX]),
-        )
-    )
-
-
-def src_transform(token_ids: List[int]):
-    return torch.cat(
-        (
-            torch.ones(1, d_channel) * train_dataset.PAD_IDX,
-            torch.tensor(token_ids),
-            torch.ones(1, d_channel) * train_dataset.PAD_IDX,
-        )
-    )
-
 
 # src and tgt language text transforms to convert raw strings into tensors indices
-transforms = {}
-transforms["tgt"] = sequential_transforms(
-    tgt_transform  # Add BOS/EOS and create tensor
-)
-transforms["src"] = sequential_transforms(
-    src_transform  # Add BOS/EOS and create tensor
-)
 
 # function to collate data samples into batch tesors
 def collate_fn(batch):
     src_batch, tgt_batch = [], []
     for src_sample, tgt_sample in batch:
-        tgt_batch.append(transforms["tgt"](tgt_sample))
+        tgt_batch.append(tgt_sample)
         src_batch.append(src_sample)
 
     src_batch = torch.stack(src_batch)
     tgt_batch = torch.stack(tgt_batch)
-    return src_batch, tgt_batch
 
-
-test_loader = DataLoader(
-    dataset=test_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn
-)
-train_loader = DataLoader(
-    dataset=train_data, batch_size=batch_size, shuffle=True, collate_fn=collate_fn
-)
-validation_loader = DataLoader(
-    dataset=validation_data, batch_size=batch_size, shuffle=True, collate_fn=collate_fn
-)
+    model_input = {"input_ids": src_batch.to(DEVICE), "labels": tgt_batch.to(DEVICE)}
+    return model_input
 
 print("data structure: [lines, timesteps, features]")
 print(f"train data size: [{DATA_LEN, d_input, d_channel}]")
 print(f"Number of classes: {d_output}")
 
+facies_transformer_config = FaciesConfig(eos_token_id=EOS_IDX, pad_token_id=PAD_IDX, bos_token_id=BOS_IDX, vocab_size=tgt_vocab_size, d_input=d_input)
+facies_transformer_config.save_pretrained("facies-transformer-config")
+facies_transformer_config = FaciesConfig.from_pretrained("facies-transformer-config")
 
 
-model = AutoModelForSequenceClassification.from_pretrained("bert-large-uncased").to("cuda")
-print_gpu_utilization()
+facies_transformer = FaciesForConditionalGeneration(facies_transformer_config)
 
 
-logging.set_verbosity_error()
-
-
-default_args = {
-    "output_dir": "tmp",
-    "evaluation_strategy": "steps",
-    "num_train_epochs": 1,
-    "log_level": "error",
-    "report_to": "none",
-}
-
-training_args = TrainingArguments(per_device_train_batch_size=4, **default_args)
-trainer = Trainer(model=model, args=training_args, train_dataset=ds)
+trainer = Trainer(model=facies_transformer, train_dataset=train_data, data_collator=collate_fn )
 result = trainer.train()
 print_summary(result)

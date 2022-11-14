@@ -3,8 +3,8 @@ from typing import List, Optional, Tuple, Union
 import torch
 from torch import nn
 from transformers import PreTrainedModel
-from config import FaciesConfig
-from model.embedding import TokenEmbedding, PositionalEncoding
+from hf_sequence_to_sequence.configuration import FaciesConfig
+from hf_sequence_to_sequence.embedding import TokenEmbedding, PositionalEncoding
 import torch.utils.checkpoint
 from torch.nn import Transformer
 from torch.nn import CrossEntropyLoss
@@ -42,8 +42,8 @@ def generate_square_subsequent_mask(sz):
     return mask
 
 def create_mask(src, tgt, PAD_IDX=None):
-    src_seq_len = src.shape[0]
-    tgt_seq_len = tgt.shape[0]
+    src_seq_len = src.shape[1]
+    tgt_seq_len = tgt.shape[1]
 
     tgt_mask = generate_square_subsequent_mask(tgt_seq_len)
     src_mask = torch.zeros((src_seq_len, src_seq_len)).type(torch.bool)
@@ -93,9 +93,18 @@ class FaciesModel(FaciesPretrainedModel):
 
         padding_idx, vocab_size = config.pad_token_id, config.vocab_size
         self.shared = nn.Embedding(vocab_size, config.d_model, padding_idx)
+        self.model = Transformer(
+                    d_model=config.d_model,
+                    num_encoder_layers=config.encoder_layers,
+                    nhead=config.decoder_attention_heads,
+                    num_decoder_layers=config.decoder_layers,
+                    dim_feedforward=config.encoder_ffn_dim,
+                    dropout=config.dropout,
+                    batch_first=True
+                )
 
-        self.encoder = self.transformer.encoder
-        self.decoder = self.transformer.decoder
+        self.encoder = self.model.encoder
+        self.decoder = self.model.decoder
 
         self.positional_encoding = PositionalEncoding(
             config.d_model, dropout=config.dropout
@@ -104,15 +113,6 @@ class FaciesModel(FaciesPretrainedModel):
             vocab_size, config.d_model
         )
         self.embedding_input = torch.nn.Linear(config.d_input, config.d_model)
-
-        self.transformer = Transformer(
-            d_model=config.d_model,
-            num_encoder_layers=config.encoder_layers,
-            nhead=config.decoder_attention_heads,
-            num_decoder_layers=config.decoder_layers,
-            dim_feedforward=config.encoder_ffn_dim,
-            dropout=config.dropout,
-        )
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -147,22 +147,21 @@ class FaciesModel(FaciesPretrainedModel):
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        return_dict: Optional[bool] = None
     ) -> Union[Tuple, Seq2SeqModelOutput]:
 
         decoder_input_ids = self.positional_encoding(
             self.decoder_inputs_embeds(decoder_input_ids)
         )
         channel_encoding = self.embedding_input(input_ids.transpose(-1, -2))
-        channel_encoding = channel_encoding.transpose(0, 1)
-        last_hidden_state = self.transformer(
+        last_hidden_state = self.model(
             channel_encoding,
             decoder_input_ids,
             None,
             decoder_attention_mask,
             None,
             None,
-            None,
+            None
         )
         return Seq2SeqModelOutput(last_hidden_state=last_hidden_state)
 
@@ -251,10 +250,10 @@ class FaciesForConditionalGeneration(FaciesPretrainedModel):
 
         (
             head_mask,
-            decoder_head_mask,
-            attention_mask,
             decoder_attention_mask,
-        ) = create_mask(input_ids, decoder_input_ids, PAD_IDX=3)
+            attention_mask,
+            decoder_head_mask,
+        ) = create_mask(input_ids, decoder_input_ids, PAD_IDX=self.config.pad_token_id)
 
         outputs = self.model(
             input_ids=input_ids,
@@ -263,7 +262,6 @@ class FaciesForConditionalGeneration(FaciesPretrainedModel):
             encoder_outputs=encoder_outputs,
             decoder_attention_mask=decoder_attention_mask,
             decoder_head_mask=decoder_head_mask,
-            past_key_values=past_key_values,
         )
 
         lm_logits = self.lm_head(outputs[0])
