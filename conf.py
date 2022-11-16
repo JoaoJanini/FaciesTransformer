@@ -6,8 +6,8 @@ DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 model_path = "saved_models/model_"
 
 # dataset settings
-SEQUENCE_LEN = 4
-TRAINING_RATIO = 0.95
+SEQUENCE_LEN = 10
+TRAINING_RATIO = 0.90
 WIRELINE_LOGS_HEADER = ["DEPTH_MD", "GR", "NPHI"]
 LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
 
@@ -35,7 +35,7 @@ correct_on_train = []
 correct_on_test = []
 
 """
-@author : Hyunwoong
-@when : 2019-10-29
+@author ": Hyunwoong
+@when ": 2019-10-29
 @homepage : https://github.com/gusdnd852
 """

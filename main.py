@@ -88,6 +88,7 @@ def tgt_transform(token_ids: List[int]):
         )
     )
 
+
 # src and tgt language text transforms to convert raw strings into tensors indices
 transforms = {}
 transforms["tgt"] = sequential_transforms(

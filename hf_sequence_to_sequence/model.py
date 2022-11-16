@@ -11,8 +11,10 @@ from torch.nn import CrossEntropyLoss
 
 from transformers.modeling_outputs import (
     Seq2SeqModelOutput,
-    Seq2SeqLMOutput
+    Seq2SeqLMOutput,
+    BaseModelOutput,
 )
+
 
 def shift_tokens_right(
     input_ids: torch.Tensor, pad_token_id: int, decoder_start_token_id: int
@@ -41,24 +43,28 @@ def generate_square_subsequent_mask(sz):
     )
     return mask
 
-def create_mask(src, tgt, PAD_IDX=None):
-    src_seq_len = src.shape[1]
-    tgt_seq_len = tgt.shape[1]
 
-    tgt_mask = generate_square_subsequent_mask(tgt_seq_len)
-    src_mask = torch.zeros((src_seq_len, src_seq_len)).type(torch.bool)
+def create_mask(src, tgt, PAD_IDX=None, DEVICE=None):
+    src_mask = None
+    src_padding_mask = None
+    if src is not None:
+        src_seq_len = src.shape[1]
+        src_mask = torch.zeros((src_seq_len, src_seq_len)).type(torch.bool)
+        src_padding_mask = (src == PAD_IDX).transpose(0, 1)
 
-    src_padding_mask = (src == PAD_IDX).transpose(0, 1)
-    tgt_padding_mask = (tgt == PAD_IDX).transpose(0, 1)
+    if tgt is not None:
+        tgt_seq_len = tgt.shape[1]
+
+        tgt_mask = generate_square_subsequent_mask(tgt_seq_len)
+
+        tgt_padding_mask = (tgt == PAD_IDX).transpose(0, 1)
+
     return src_mask, tgt_mask, src_padding_mask, tgt_padding_mask
 
 
 class FaciesPretrainedModel(PreTrainedModel):
     config_class = FaciesConfig
     base_model_prefix = "model"
-    supports_gradient_checkpointing = True
-    _keys_to_ignore_on_load_unexpected = [r"encoder.version", r"decoder.version"]
-    _no_split_modules = [r"BartEncoderLayer", r"BartDecoderLayer"]
 
     def _init_weights(self, module):
         std = self.config.init_std
@@ -70,9 +76,6 @@ class FaciesPretrainedModel(PreTrainedModel):
             module.weight.data.normal_(mean=0.0, std=std)
             if module.padding_idx is not None:
                 module.weight.data[module.padding_idx].zero_()
-
-    def _set_gradient_checkpointing(self, module, value=False):
-        pass
 
     @property
     def dummy_inputs(self):
@@ -86,33 +89,72 @@ class FaciesPretrainedModel(PreTrainedModel):
         }
         return dummy_inputs
 
+class FaciesModelEncoder(FaciesPretrainedModel):
+    def __init__(self, config: FaciesConfig, model):
+        super().__init__(config)
+        self.config = config
+        padding_idx, vocab_size = config.pad_token_id, config.vocab_size
+        self.shared = nn.Embedding(vocab_size, config.d_model, padding_idx)
+
+        self.model = model.encoder
+
+        self.positional_encoding = PositionalEncoding(
+            config.d_model, dropout=config.dropout
+        )
+
+        self.embedding_input = torch.nn.Linear(config.d_input, config.d_model)
+
+        # Initialize weights and apply final processing
+    def forward(
+        self,
+        input_ids: torch.LongTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        decoder_input_ids: Optional[torch.LongTensor] = None,
+        decoder_attention_mask: Optional[torch.LongTensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        decoder_head_mask: Optional[torch.Tensor] = None,
+        cross_attn_head_mask: Optional[torch.Tensor] = None,
+        encoder_outputs: Optional[List[torch.FloatTensor]] = None,
+        past_key_values: Optional[List[torch.FloatTensor]] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        decoder_inputs_embeds: Optional[torch.FloatTensor] = None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ) -> Union[Tuple, Seq2SeqModelOutput]:
+
+        channel_encoding = self.embedding_input(input_ids.transpose(-1, -2))
+
+        output_encoder = self.model(
+            channel_encoding, mask=None, src_key_padding_mask=None
+        )
+
+        return BaseModelOutput(last_hidden_state=output_encoder)
 
 class FaciesModel(FaciesPretrainedModel):
     def __init__(self, config: FaciesConfig):
         super().__init__(config)
-
         padding_idx, vocab_size = config.pad_token_id, config.vocab_size
         self.shared = nn.Embedding(vocab_size, config.d_model, padding_idx)
         self.model = Transformer(
-                    d_model=config.d_model,
-                    num_encoder_layers=config.encoder_layers,
-                    nhead=config.decoder_attention_heads,
-                    num_decoder_layers=config.decoder_layers,
-                    dim_feedforward=config.encoder_ffn_dim,
-                    dropout=config.dropout,
-                    batch_first=True
-                )
+            d_model=config.d_model,
+            num_encoder_layers=config.encoder_layers,
+            nhead=config.decoder_attention_heads,
+            num_decoder_layers=config.decoder_layers,
+            dim_feedforward=config.encoder_ffn_dim,
+            dropout=config.dropout,
+            batch_first=True
+        )
 
-        self.encoder = self.model.encoder
+        self.encoder = FaciesModelEncoder(config, self.model)
+
         self.decoder = self.model.decoder
 
         self.positional_encoding = PositionalEncoding(
             config.d_model, dropout=config.dropout
         )
-        self.decoder_inputs_embeds = TokenEmbedding(
-            vocab_size, config.d_model
-        )
-        self.embedding_input = torch.nn.Linear(config.d_input, config.d_model)
+        self.decoder_inputs_embeds = TokenEmbedding(vocab_size, config.d_model)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -122,8 +164,8 @@ class FaciesModel(FaciesPretrainedModel):
 
     def set_input_embeddings(self, value):
         self.shared = value
-        self.encoder.embed_tokens = self.decoder_inputs_embeds
-        self.decoder.embed_tokens = self.embedding_input
+        self.encoder.embed_tokens = self.shared
+        self.decoder.embed_tokens = self.decoder_inputs_embed
 
     def get_encoder(self):
         return self.encoder
@@ -147,38 +189,47 @@ class FaciesModel(FaciesPretrainedModel):
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None
+        return_dict: Optional[bool] = None,
     ) -> Union[Tuple, Seq2SeqModelOutput]:
 
         decoder_input_ids = self.positional_encoding(
             self.decoder_inputs_embeds(decoder_input_ids)
         )
-        channel_encoding = self.embedding_input(input_ids.transpose(-1, -2))
-        last_hidden_state = self.model(
-            channel_encoding,
+
+        if encoder_outputs is None:
+            encoder_outputs = self.encoder(
+                input_ids
+            )
+        # If the user passed a tuple for encoder_outputs, we wrap it in a BaseModelOutput when return_dict=True
+        elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
+            encoder_outputs = BaseModelOutput(
+                last_hidden_state=encoder_outputs[0]
+            )
+
+        decoder_output = self.decoder(
             decoder_input_ids,
-            None,
-            decoder_attention_mask,
-            None,
-            None,
-            None
+            encoder_outputs.last_hidden_state,
+            tgt_mask=decoder_attention_mask,
+            memory_mask=None,
+            tgt_key_padding_mask=None,
+            memory_key_padding_mask=None,
         )
-        return Seq2SeqModelOutput(last_hidden_state=last_hidden_state)
+
+        decoder_outputs = BaseModelOutput(last_hidden_state=decoder_output)
+
+        return Seq2SeqModelOutput(
+            last_hidden_state=decoder_outputs.last_hidden_state,
+            encoder_last_hidden_state=encoder_outputs.last_hidden_state,
+        )
 
 
 class FaciesForConditionalGeneration(FaciesPretrainedModel):
     base_model_prefix = "model"
-    _keys_to_ignore_on_load_missing = [r"final_logits_bias", r"lm_head.weight"]
 
     def __init__(self, config: FaciesConfig):
         super().__init__(config)
         self.model = FaciesModel(config)
-        self.register_buffer(
-            "final_logits_bias", torch.zeros((1, config.vocab_size))
-        )
-        self.lm_head = nn.Linear(
-            config.d_model, config.vocab_size, bias=False
-        )
+        self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -188,23 +239,6 @@ class FaciesForConditionalGeneration(FaciesPretrainedModel):
 
     def get_decoder(self):
         return self.model.get_decoder()
-
-    def resize_token_embeddings(self, new_num_tokens: int) -> nn.Embedding:
-        new_embeddings = super().resize_token_embeddings(new_num_tokens)
-        self._resize_final_logits_bias(new_num_tokens)
-        return new_embeddings
-
-    def _resize_final_logits_bias(self, new_num_tokens: int) -> None:
-        old_num_tokens = self.final_logits_bias.shape[-1]
-        if new_num_tokens <= old_num_tokens:
-            new_bias = self.final_logits_bias[:, :new_num_tokens]
-        else:
-            extra_bias = torch.zeros(
-                (1, new_num_tokens - old_num_tokens),
-                device=self.final_logits_bias.device,
-            )
-            new_bias = torch.cat([self.final_logits_bias, extra_bias], dim=1)
-        self.register_buffer("final_logits_bias", new_bias)
 
     def get_output_embeddings(self):
         return self.lm_head
@@ -253,19 +287,23 @@ class FaciesForConditionalGeneration(FaciesPretrainedModel):
             decoder_attention_mask,
             attention_mask,
             decoder_head_mask,
-        ) = create_mask(input_ids, decoder_input_ids, PAD_IDX=self.config.pad_token_id)
+        ) = create_mask(
+            input_ids,
+            decoder_input_ids,
+            PAD_IDX=self.config.pad_token_id,
+            DEVICE=decoder_input_ids.device,
+        )
 
         outputs = self.model(
             input_ids=input_ids,
-            attention_mask=attention_mask,
             decoder_input_ids=decoder_input_ids,
+            attention_mask=None,
+            decoder_attention_mask=decoder_attention_mask.to(device=decoder_input_ids.device),
+            decoder_head_mask=None,
             encoder_outputs=encoder_outputs,
-            decoder_attention_mask=decoder_attention_mask,
-            decoder_head_mask=decoder_head_mask,
         )
 
         lm_logits = self.lm_head(outputs[0])
-        lm_logits = lm_logits + self.final_logits_bias.to(lm_logits.device)
 
         masked_lm_loss = None
         if labels is not None:

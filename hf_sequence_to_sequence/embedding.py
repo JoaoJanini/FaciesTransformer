@@ -5,7 +5,7 @@ import math
 
 # helper Module that adds positional encoding to the token embedding to introduce a notion of word order.
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model: int, dropout: float, maxlen: int = 5000):
+    def __init__(self, d_model: int, dropout: float, maxlen: int = 6400):
         super(PositionalEncoding, self).__init__()
         den = torch.exp(-torch.arange(0, d_model, 2) * math.log(10000) / d_model)
         pos = torch.arange(0, maxlen).reshape(maxlen, 1)

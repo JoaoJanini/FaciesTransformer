@@ -90,21 +90,86 @@ def collate_fn(batch):
     src_batch = torch.stack(src_batch)
     tgt_batch = torch.stack(tgt_batch)
 
-    model_input = {"input_ids": src_batch.to(DEVICE), "labels": tgt_batch.to(DEVICE)}
+    model_input = {"input_ids": src_batch, "labels": tgt_batch}
     return model_input
+
 
 print("data structure: [lines, timesteps, features]")
 print(f"train data size: [{DATA_LEN, d_input, d_channel}]")
 print(f"Number of classes: {d_output}")
 
-facies_transformer_config = FaciesConfig(eos_token_id=EOS_IDX, pad_token_id=PAD_IDX, bos_token_id=BOS_IDX, vocab_size=tgt_vocab_size, d_input=d_input)
+UNK_IDX, PAD_IDX, BOS_IDX, EOS_IDX = 0, 1, 2, 3
+# Make sure the tokens are in order of their indices to properly insert them in vocab
+special_symbols = ["<unk>", "<pad>", "<bos>", "<eos>"]
+
+test_loader = DataLoader(
+    dataset=test_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn
+)
+
+SEQUENCE_LEN = 20
+TRAINING_RATIO = 0.90
+WIRELINE_LOGS_HEADER = ["DEPTH_MD", "GR", "NPHI"]
+LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
+
+facies_config = {
+    "vocab_size": tgt_vocab_size,
+    "max_position_embeddings": 1024,
+    "encoder_layers": 4,
+    "encoder_ffn_dim": 1024,
+    "encoder_attention_heads": 4,
+    "decoder_layers": 4,
+    "decoder_ffn_dim": 1024,
+    "decoder_attention_heads": 4,
+    "encoder_layerdrop": 0.0,
+    "decoder_layerdrop": 0.0,
+    "activation_function": "relu",
+    "d_model": 512,
+    "d_input": d_input,
+    "dropout": 0.1,
+    "attention_dropout": 0.0,
+    "activation_dropout": 0.0,
+    "init_std": 0.02,
+    "classifier_dropout": 0.0,
+    "scale_embedding": False,
+    "use_cache": False,
+    "num_labels": tgt_vocab_size,
+    "pad_token_id": PAD_IDX,
+    "bos_token_id": BOS_IDX,
+    "eos_token_id": EOS_IDX,
+    "is_encoder_decoder": True,
+    "decoder_start_token_id": 2,
+    "forced_eos_token_id": EOS_IDX,
+}
+
+facies_transformer_config = FaciesConfig(**facies_config)
 facies_transformer_config.save_pretrained("facies-transformer-config")
 facies_transformer_config = FaciesConfig.from_pretrained("facies-transformer-config")
 
 
 facies_transformer = FaciesForConditionalGeneration(facies_transformer_config)
 
-
-trainer = Trainer(model=facies_transformer, train_dataset=train_data, data_collator=collate_fn )
+training_args = TrainingArguments(
+    output_dir="saved_models/",
+    per_device_train_batch_size=640,
+    per_device_eval_batch_size=640,
+    evaluation_strategy="epoch",
+    num_train_epochs=4,
+)
+trainer = Trainer(
+    model=facies_transformer,
+    train_dataset=train_data,
+    eval_dataset=validation_data,
+    data_collator=collate_fn,
+    args=training_args,
+)
 result = trainer.train()
-print_summary(result)
+
+# Loop for generating the output of a sequence for all the data in the test dataloader using model.generate
+for i, batch in enumerate(test_loader):
+    input_ids = batch["input_ids"].to(DEVICE)
+    outputs = facies_transformer.generate(
+        input_ids=input_ids,
+        num_beams=8,
+        num_return_sequences=1,
+        max_new_tokens=SEQUENCE_LEN+1
+    )
