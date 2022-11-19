@@ -93,6 +93,7 @@ class WellsDataset(Dataset):
         self.output_len = output_len
         # Define special symbols and indices
         self.PAD_IDX = 0
+        self.special_symbols = [self.PAD_IDX]
         # Make sure the tokens are in order of their indices to properly insert them in vocab
         if self.output_len is None:
             self.output_len = len(tuple(set(self.data_df[self.target[0]].to_numpy())))

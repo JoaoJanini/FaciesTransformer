@@ -45,26 +45,13 @@ d_channel = train_dataset.channel_len
 tgt_vocab_size = train_dataset.output_len + len(train_dataset.special_symbols)
 TRAIN_DATA_LEN = int(DATA_LEN * TRAINING_RATIO)
 
-
 train_data, validation_data = random_split(
     train_dataset, lengths=[TRAIN_DATA_LEN, DATA_LEN - TRAIN_DATA_LEN]
 )
 
-
-def sequential_transforms(*transforms):
-    def func(txt_input):
-        for transform in transforms:
-            txt_input = transform(txt_input)
-        return txt_input
-
-    return func
-
-
-# function to add BOS/EOS and create tensor for input sequence indices
-
-# src and tgt language text transforms to convert raw strings into tensors indices
-
 # function to collate data samples into batch tesors
+
+
 def collate_fn(batch):
     src_batch, tgt_batch = [], []
     for src_sample, tgt_sample in batch:
@@ -77,14 +64,6 @@ def collate_fn(batch):
     model_input = {"input_ids": src_batch, "labels": tgt_batch}
     return model_input
 
-
-print("data structure: [lines, timesteps, features]")
-print(f"train data size: [{DATA_LEN, d_input, d_channel}]")
-print(f"Number of classes: {d_output}")
-
-PAD_IDX = 0
-# Make sure the tokens are in order of their indices to properly insert them in vocab
-special_symbols = ["<unk>", "<pad>", "<bos>", "<eos>"]
 
 test_loader = DataLoader(
     dataset=test_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn
@@ -111,12 +90,12 @@ facies_config = {
     "scale_embedding": False,
     "use_cache": False,
     "num_labels": tgt_vocab_size,
-    "pad_token_id": PAD_IDX,
-    "bos_token_id": BOS_IDX,
-    "eos_token_id": EOS_IDX,
+    "pad_token_id": train_dataset.PAD_IDX,
+    "bos_token_id": train_dataset.PAD_IDX,
+    "eos_token_id": train_dataset.PAD_IDX,
     "is_encoder_decoder": True,
-    "decoder_start_token_id": 2,
-    "forced_eos_token_id": EOS_IDX,
+    "decoder_start_token_id": train_dataset.PAD_IDX,
+    "forced_eos_token_id": train_dataset.PAD_IDX,
 }
 
 facies_transformer_config = FaciesConfig(**facies_config)
@@ -147,6 +126,9 @@ for i, batch in enumerate(test_loader):
     outputs = facies_transformer.generate(
         input_ids=input_ids,
         num_beams=4,
+        pad_token_id=train_dataset.PAD_IDX,
+        eos_token_id=train_dataset.PAD_IDX,
+        bos_token_id=train_dataset.PAD_IDX,
         num_return_sequences=1,
         max_new_tokens=SEQUENCE_LEN + 1,
     )
