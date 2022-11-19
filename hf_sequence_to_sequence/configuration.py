@@ -99,7 +99,7 @@ class FaciesConfig(PretrainedConfig):
         classifier_dropout=0.0,
         scale_embedding=False,
         use_cache=True,
-        num_labels=3,
+        num_labels=16,
         pad_token_id=1,
         bos_token_id=0,
         eos_token_id=2,
@@ -131,9 +131,10 @@ class FaciesConfig(PretrainedConfig):
         self.scale_embedding = (
             scale_embedding  # scale factor will be sqrt(d_model) if True
         )
+        self.num_labels = num_labels
 
         super().__init__(
-            num_labels=num_labels,
+            num_labels=self.num_labels,
             pad_token_id=pad_token_id,
             bos_token_id=bos_token_id,
             eos_token_id=eos_token_id,
