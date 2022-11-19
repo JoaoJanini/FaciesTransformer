@@ -82,7 +82,7 @@ print("data structure: [lines, timesteps, features]")
 print(f"train data size: [{DATA_LEN, d_input, d_channel}]")
 print(f"Number of classes: {d_output}")
 
-UNK_IDX, PAD_IDX, BOS_IDX, EOS_IDX = 0, 1, 2, 3
+PAD_IDX = 0
 # Make sure the tokens are in order of their indices to properly insert them in vocab
 special_symbols = ["<unk>", "<pad>", "<bos>", "<eos>"]
 
@@ -130,14 +130,14 @@ training_args = TrainingArguments(
     per_device_train_batch_size=640,
     per_device_eval_batch_size=640,
     evaluation_strategy="epoch",
-    num_train_epochs=30
+    num_train_epochs=30,
 )
 trainer = Trainer(
     model=facies_transformer,
     train_dataset=train_data,
     eval_dataset=validation_data,
     data_collator=collate_fn,
-    args=training_args
+    args=training_args,
 )
 result = trainer.train()
 
@@ -148,5 +148,5 @@ for i, batch in enumerate(test_loader):
         input_ids=input_ids,
         num_beams=4,
         num_return_sequences=1,
-        max_new_tokens=SEQUENCE_LEN+1
+        max_new_tokens=SEQUENCE_LEN + 1,
     )

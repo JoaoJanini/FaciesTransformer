@@ -60,11 +60,6 @@ def sequential_transforms(*transforms):
     return func
 
 
-# function to add BOS/EOS and create tensor for input sequence indices
-
-# src and tgt language text transforms to convert raw strings into tensors indices
-
-# function to collate data samples into batch tesors
 def collate_fn(batch):
     src_batch, tgt_batch = [], []
     for src_sample, tgt_sample in batch:
@@ -87,9 +82,13 @@ test_loader = DataLoader(
     dataset=test_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn
 )
 
-facies_transformer_config = FaciesConfig.from_pretrained("/home/joao/code/tcc/seq2seq/saved_models/checkpoint-500")
+facies_transformer_config = FaciesConfig.from_pretrained(
+    "/home/joao/code/tcc/seq2seq/saved_models/checkpoint-500"
+)
 
-facies_transformer = FaciesForConditionalGeneration(facies_transformer_config).to(DEVICE)
+facies_transformer = FaciesForConditionalGeneration(facies_transformer_config).to(
+    DEVICE
+)
 
 # Loop for generating the output of a sequence for all the data in the test dataloader using model.generate
 for i, batch in enumerate(test_loader):
@@ -97,8 +96,7 @@ for i, batch in enumerate(test_loader):
     outputs = facies_transformer.generate(
         input_ids=input_ids,
         bos_token_id=2,
-        bad_words_ids=[[2,1,0,3]],
         num_beams=2,
         num_return_sequences=1,
-        max_new_tokens=SEQUENCE_LEN+1
+        max_new_tokens=SEQUENCE_LEN + 1,
     )

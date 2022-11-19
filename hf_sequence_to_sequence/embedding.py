@@ -23,12 +23,22 @@ class PositionalEncoding(nn.Module):
         )
 
 
-# helper Module to convert tensor of input indices into corresponding tensor of token embeddings
-class TokenEmbedding(nn.Module):
-    def __init__(self, vocab_size: int, d_model):
-        super(TokenEmbedding, self).__init__()
-        self.embedding = nn.Embedding(vocab_size, d_model)
-        self.d_model = d_model
+self.num_categories = len(categories)
+self.num_unique_categories = sum(categories)
 
-    def forward(self, tokens: Tensor):
-        return self.embedding(tokens.long()) * math.sqrt(self.d_model)
+# create category embeddings table
+
+self.num_special_tokens = num_special_tokens
+total_tokens = self.num_unique_categories + num_special_tokens
+
+# for automatically offsetting unique category ids to the correct position in the categories embedding table
+
+categories_offset = F.pad(
+    torch.tensor(list(categories)), (1, 0), value=num_special_tokens
+)
+categories_offset = categories_offset.cumsum(dim=-1)[:-1]
+self.register_buffer("categories_offset", categories_offset)
+
+# categorical embedding
+
+self.categorical_embeds = nn.Embedding(total_tokens, dim)
