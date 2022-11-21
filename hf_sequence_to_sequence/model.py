@@ -4,7 +4,7 @@ import torch
 from torch import nn
 from transformers import PreTrainedModel
 from hf_sequence_to_sequence.configuration import FaciesConfig
-from hf_sequence_to_sequence.embedding import PositionalEncoding
+from hf_sequence_to_sequence.embedding import PositionalEncoding, Embeddings
 import torch.utils.checkpoint
 from torch.nn import (
     TransformerEncoder,
@@ -12,7 +12,6 @@ from torch.nn import (
     TransformerDecoder,
     TransformerDecoderLayer,
     LayerNorm,
-    Embedding,
     CrossEntropyLoss,
 )
 
@@ -75,23 +74,7 @@ def shift_tokens_right(
     return shifted_input_ids
 
 
-class FaciesPretrainedModel(PreTrainedModel):
-    config_class = FaciesConfig
-    base_model_prefix = "model"
-
-    def _init_weights(self, module):
-        std = self.config.init_std
-        if isinstance(module, nn.Linear):
-            module.weight.data.normal_(mean=0.0, std=std)
-            if module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, nn.Embedding):
-            module.weight.data.normal_(mean=0.0, std=std)
-            if module.padding_idx is not None:
-                module.weight.data[module.padding_idx].zero_()
-
-
-class FaciesModelEncoder(FaciesPretrainedModel):
+class FaciesModelEncoder(PreTrainedModel):
     def __init__(self, config: FaciesConfig):
         super().__init__(config)
         self.config = config
@@ -108,7 +91,7 @@ class FaciesModelEncoder(FaciesPretrainedModel):
             num_layers=config.encoder_layers,
             norm=self.norm,
         )
-        self.embed_tokens = torch.nn.Linear(config.d_input, config.d_model)
+        self.embed_tokens = torch.nn.Linear(config.sequence_len, config.d_model)
 
         # Initialize weights and apply final processing
 
@@ -129,13 +112,13 @@ class FaciesModelEncoder(FaciesPretrainedModel):
         channel_encoding = self.embed_tokens(input_ids.transpose(-1, -2))
 
         output_encoder = self.model(
-            channel_encoding, mask=head_mask, src_key_padding_mask=attention_mask
+            channel_encoding, mask=None, src_key_padding_mask=None
         )
 
         return BaseModelOutput(last_hidden_state=output_encoder)
 
 
-class FaciesModelDecoder(FaciesPretrainedModel):
+class FaciesModelDecoder(PreTrainedModel):
     def __init__(self, config: FaciesConfig):
         super().__init__(config)
         self.config = config
@@ -156,10 +139,9 @@ class FaciesModelDecoder(FaciesPretrainedModel):
         self.positional_encoding = PositionalEncoding(
             config.d_model, dropout=config.dropout
         )
-        self.embed_tokens = Embedding(
+        self.embed_tokens = nn.Embedding(
             config.vocab_size, config.d_model, config.pad_token_id
         )
-
 
         # Initialize weights and apply final processing
 
@@ -232,7 +214,10 @@ class FaciesModelDecoder(FaciesPretrainedModel):
             inputs_embeds = self.embed_tokens(input)
 
         attention_mask = self._prepare_decoder_attention_mask(
-            attention_mask, input_shape, inputs_embeds, past_key_values_length=past_key_values_length
+            attention_mask,
+            input_shape,
+            inputs_embeds,
+            past_key_values_length=past_key_values_length,
         )
 
         # expand encoder attention mask
@@ -247,15 +232,15 @@ class FaciesModelDecoder(FaciesPretrainedModel):
             hidden_state,
             encoder_hidden_states,
             tgt_mask=attention_mask,
-            memory_mask=cross_attn_head_mask,
-            tgt_key_padding_mask=head_mask,
-            memory_key_padding_mask=encoder_attention_mask,
+            memory_mask=None,
+            tgt_key_padding_mask=None,
+            memory_key_padding_mask=None,
         )
 
         return BaseModelOutput(last_hidden_state=decoder_outputs)
 
 
-class FaciesModel(FaciesPretrainedModel):
+class FaciesModel(PreTrainedModel):
     def __init__(self, config: FaciesConfig):
         super().__init__(config)
 
@@ -265,7 +250,6 @@ class FaciesModel(FaciesPretrainedModel):
         self.decoder_embed = self.decoder.get_input_embeddings()
 
         # Initialize weights and apply final processing
-        self.post_init()
 
     def get_input_embeddings(self):
         return self.decoder.embed_tokens
@@ -346,16 +330,13 @@ class FaciesModel(FaciesPretrainedModel):
         )
 
 
-class FaciesForConditionalGeneration(FaciesPretrainedModel):
+class FaciesForConditionalGeneration(PreTrainedModel):
     base_model_prefix = "model"
 
     def __init__(self, config: FaciesConfig):
         super().__init__(config)
         self.model = FaciesModel(config)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
-
-        # Initialize weights and apply final processing
-        self.post_init()
 
     def get_encoder(self):
         return self.model.get_encoder()

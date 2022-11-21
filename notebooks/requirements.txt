@@ -10,3 +10,4 @@ sklearn
 torchmetrics
 transformers
 accelerate
+pretty-confusion-matrix

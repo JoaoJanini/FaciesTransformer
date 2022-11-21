@@ -14,52 +14,8 @@ from typing import List
 
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-BATCH_SIZE = 640
-SEQUENCE_LEN = 30
-TRAINING_RATIO = 0.90
-WIRELINE_LOGS_HEADER = ["DEPTH_MD", "GR", "NPHI"]
-LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
-
-train_dataset = WellsDataset(
-    dataset_type="train",
-    sequence_len=SEQUENCE_LEN,
-    model_type="seq2seq",
-    feature_columns=WIRELINE_LOGS_HEADER,
-    label_columns=LABEL_COLUMN_HEADER,
-)
-test_dataset = WellsDataset(
-    dataset_type="test",
-    sequence_len=SEQUENCE_LEN,
-    model_type="seq2seq",
-    feature_columns=WIRELINE_LOGS_HEADER,
-    label_columns=LABEL_COLUMN_HEADER,
-    scaler=train_dataset.scaler,
-    output_len=train_dataset.output_len,
-)
-
-DATA_LEN = train_dataset.train_len
-d_input = train_dataset.input_len
-d_output = train_dataset.output_len
-d_channel = train_dataset.channel_len
-tgt_vocab_size = train_dataset.output_len + len(train_dataset.special_symbols)
-TRAIN_DATA_LEN = int(DATA_LEN * TRAINING_RATIO)
-
-
-train_data, validation_data = random_split(
-    train_dataset, lengths=[TRAIN_DATA_LEN, DATA_LEN - TRAIN_DATA_LEN]
-)
-
-
-def sequential_transforms(*transforms):
-    def func(txt_input):
-        for transform in transforms:
-            txt_input = transform(txt_input)
-        return txt_input
-
-    return func
-
-
+config_path = "/home/joao/code/tcc/seq2seq/saved_models/2022-11-20_18-38-58/facies-transformer-config"
+model_path = "/home/joao/code/tcc/seq2seq/saved_models/2022-11-20_18-38-58/facies-transformer/facies_transformer_state_dict.pt"
 def collate_fn(batch):
     src_batch, tgt_batch = [], []
     for src_sample, tgt_sample in batch:
@@ -72,31 +28,67 @@ def collate_fn(batch):
     model_input = {"input_ids": src_batch, "labels": tgt_batch}
     return model_input
 
+facies_transformer_config = FaciesConfig.from_pretrained(
+    f"{config_path}"
+)
 
-print("data structure: [lines, timesteps, features]")
-print(f"train data size: [{DATA_LEN, d_input, d_channel}]")
-print(f"Number of classes: {d_output}")
+facies_transformer = FaciesForConditionalGeneration(facies_transformer_config).to(DEVICE)
+facies_transformer.load_state_dict(torch.load(model_path))
+BATCH_SIZE = 256
+TRAINING_RATIO = 0.90
+WIRELINE_LOGS_HEADER = ["GR", "NPHI"]
+LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
+
+train_dataset = WellsDataset(
+    dataset_type="train",
+    sequence_len=facies_transformer_config.sequence_len,
+    model_type="seq2seq",
+    feature_columns=WIRELINE_LOGS_HEADER,
+    label_columns=LABEL_COLUMN_HEADER,
+)
+test_dataset = WellsDataset(
+    dataset_type="test",
+    sequence_len=facies_transformer_config.sequence_len,
+    model_type="seq2seq",
+    feature_columns=WIRELINE_LOGS_HEADER,
+    label_columns=LABEL_COLUMN_HEADER,
+    scaler=train_dataset.scaler,
+    output_len=train_dataset.output_len,
+)
 
 
 test_loader = DataLoader(
     dataset=test_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn
 )
 
-facies_transformer_config = FaciesConfig.from_pretrained(
-    "/home/joao/code/tcc/seq2seq/saved_models/checkpoint-500"
-)
-
-facies_transformer = FaciesForConditionalGeneration(facies_transformer_config).to(
-    DEVICE
-)
-
 # Loop for generating the output of a sequence for all the data in the test dataloader using model.generate
+
+decoded_labels = torch.empty(0, dtype=torch.long).to(DEVICE)
 for i, batch in enumerate(test_loader):
     input_ids = batch["input_ids"].to(DEVICE)
     outputs = facies_transformer.generate(
         input_ids=input_ids,
-        bos_token_id=2,
-        num_beams=2,
+        bos_token_id=test_dataset.PAD_IDX,
+        pad_token_id=test_dataset.PAD_IDX,
+        eos_token_id=test_dataset.PAD_IDX,
         num_return_sequences=1,
-        max_new_tokens=SEQUENCE_LEN + 1,
+        num_beams=10,
+        max_new_tokens=facies_transformer_config.sequence_len + 1,
     )
+
+    decoded_labels = torch.cat((decoded_labels, outputs[:, 1:-1].flatten()))
+    if i == 100:
+        print(decoded_labels)
+print(decoded_labels)
+labels = test_dataset.train_label.flatten().to(DEVICE)
+torch.save(decoded_labels, 'y_pred.pt')
+torch.save(labels, 'y_true.pt')
+# Calculate the accuracy of the model
+correct = (decoded_labels == labels).sum().item()
+accuracy = correct / len(labels)
+print(f"Accuracy: {accuracy}")
+# Save to file
+x = torch
+
+# Increase print limit for torch tensor
+torch.set_printoptions(threshold=10000)

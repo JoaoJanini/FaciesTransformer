@@ -11,14 +11,14 @@ from torch.utils.data import DataLoader
 from dataset.dataset import WellsDataset
 from torch.utils.data import random_split
 from typing import List
-
+from datetime import datetime
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-BATCH_SIZE = 640
+BATCH_SIZE = 128
 SEQUENCE_LEN = 30
 TRAINING_RATIO = 0.90
-WIRELINE_LOGS_HEADER = ["DEPTH_MD", "GR", "NPHI"]
+WIRELINE_LOGS_HEADER = ["GR", "NPHI"]
 LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
 
 train_dataset = WellsDataset(
@@ -71,18 +71,20 @@ test_loader = DataLoader(
 facies_config = {
     "vocab_size": tgt_vocab_size,
     "max_position_embeddings": 1024,
-    "encoder_layers": 4,
+    "encoder_layers": 6,
     "encoder_ffn_dim": 1024,
-    "encoder_attention_heads": 4,
+    "encoder_attention_heads": 8,
     "decoder_layers": 4,
     "decoder_ffn_dim": 1024,
-    "decoder_attention_heads": 4,
+    "decoder_attention_heads": 8,
     "encoder_layerdrop": 0.0,
     "decoder_layerdrop": 0.0,
     "activation_function": "relu",
     "d_model": 512,
-    "d_input": d_input,
-    "dropout": 0.1,
+    "n_input_features": d_channel,
+    "n_output_features": d_output,
+    "sequence_len": SEQUENCE_LEN,
+    "dropout": 0.2,
     "attention_dropout": 0.0,
     "activation_dropout": 0.0,
     "init_std": 0.02,
@@ -97,19 +99,23 @@ facies_config = {
     "decoder_start_token_id": train_dataset.PAD_IDX,
     "forced_eos_token_id": train_dataset.PAD_IDX,
 }
-
+model_directory = f"saved_models/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 facies_transformer_config = FaciesConfig(**facies_config)
-facies_transformer_config.save_pretrained("facies-transformer-config")
-facies_transformer_config = FaciesConfig.from_pretrained("facies-transformer-config")
+facies_transformer_config.save_pretrained(
+    f"{model_directory}/facies-transformer-config"
+)
+facies_transformer_config = FaciesConfig.from_pretrained(
+    f"{model_directory}/facies-transformer-config"
+)
 
 facies_transformer = FaciesForConditionalGeneration(facies_transformer_config)
 
 training_args = TrainingArguments(
-    output_dir="saved_models/",
-    per_device_train_batch_size=640,
-    per_device_eval_batch_size=640,
+    output_dir=f"{model_directory}/facies-transformer",
+    per_device_train_batch_size=BATCH_SIZE,
+    per_device_eval_batch_size=BATCH_SIZE,
     evaluation_strategy="epoch",
-    num_train_epochs=30,
+    num_train_epochs=5,
 )
 trainer = Trainer(
     model=facies_transformer,
@@ -120,15 +126,31 @@ trainer = Trainer(
 )
 result = trainer.train()
 
+torch.save(facies_transformer.state_dict(), f = f"{model_directory}/facies-transformer/facies_transformer_state_dict.pt")
+for j in range(5):
+    decoded_labels = torch.empty(0, dtype=torch.long).to(DEVICE)
+    for i, batch in enumerate(test_loader):
+        input_ids = batch["input_ids"].to(DEVICE)
+        outputs = facies_transformer.generate(
+            input_ids=input_ids,
+            bos_token_id=test_dataset.PAD_IDX,
+            pad_token_id=test_dataset.PAD_IDX,
+            eos_token_id=test_dataset.PAD_IDX,
+            num_return_sequences=1,
+            num_beams=3,
+            max_new_tokens=facies_transformer_config.sequence_len + 1,
+            temperature=.8
+        )
+
+        decoded_labels = torch.cat((decoded_labels, outputs[:, 1:-1].flatten()))
+    print(decoded_labels)
+    labels = test_dataset.train_label.flatten().to(DEVICE)
+    # Calculate the accuracy of the model
+    correct = (decoded_labels == labels).sum().item()
+    accuracy = correct / len(labels)
+    print(f"Accuracy: {accuracy}")
+
+# Increase print limit for torch tensor
+torch.set_printoptions(threshold=10000)
+
 # Loop for generating the output of a sequence for all the data in the test dataloader using model.generate
-for i, batch in enumerate(test_loader):
-    input_ids = batch["input_ids"].to(DEVICE)
-    outputs = facies_transformer.generate(
-        input_ids=input_ids,
-        num_beams=4,
-        pad_token_id=train_dataset.PAD_IDX,
-        eos_token_id=train_dataset.PAD_IDX,
-        bos_token_id=train_dataset.PAD_IDX,
-        num_return_sequences=1,
-        max_new_tokens=SEQUENCE_LEN + 1,
-    )

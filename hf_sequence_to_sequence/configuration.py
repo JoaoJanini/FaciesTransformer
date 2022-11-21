@@ -91,7 +91,8 @@ class FaciesConfig(PretrainedConfig):
         decoder_layerdrop=0.0,
         activation_function="gelu",
         d_model=1024,
-        d_input=2,
+        n_input_features=2,
+        sequence_len=5,
         dropout=0.1,
         attention_dropout=0.0,
         activation_dropout=0.0,
@@ -100,16 +101,17 @@ class FaciesConfig(PretrainedConfig):
         scale_embedding=False,
         use_cache=True,
         num_labels=16,
-        pad_token_id=1,
+        pad_token_id=0,
         bos_token_id=0,
-        eos_token_id=2,
+        eos_token_id=0,
         is_encoder_decoder=True,
-        decoder_start_token_id=2,
+        decoder_start_token_id=0,
         forced_eos_token_id=2,
         **kwargs,
     ):
         self.vocab_size = vocab_size
-        self.d_input = d_input
+        self.sequence_len = sequence_len
+        self.n_input_features = n_input_features
         self.max_position_embeddings = max_position_embeddings
         self.d_model = d_model
         self.encoder_ffn_dim = encoder_ffn_dim

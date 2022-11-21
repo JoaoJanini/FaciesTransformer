@@ -10,3 +10,5 @@ sklearn
 torchmetrics
 transformers
 accelerate
+tensorboard-plugin-profile
+torchsummary
