@@ -11,28 +11,29 @@ from torch.utils.data import DataLoader
 from dataset.dataset import WellsDataset
 from torch.utils.data import random_split
 from typing import List
-
-
+import numpy as np 
+import utils
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 config_path = "/home/joao/code/tcc/seq2seq/saved_models/2022-11-20_18-38-58/facies-transformer-config"
 model_path = "/home/joao/code/tcc/seq2seq/saved_models/2022-11-20_18-38-58/facies-transformer/facies_transformer_state_dict.pt"
+
 def collate_fn(batch):
     src_batch, tgt_batch = [], []
-    for src_sample, tgt_sample in batch:
+    for (src_sample, tgt_sample) in batch:
         tgt_batch.append(tgt_sample)
         src_batch.append(src_sample)
-
     src_batch = torch.stack(src_batch)
     tgt_batch = torch.stack(tgt_batch)
 
     model_input = {"input_ids": src_batch, "labels": tgt_batch}
     return model_input
 
-facies_transformer_config = FaciesConfig.from_pretrained(
-    f"{config_path}"
-)
 
-facies_transformer = FaciesForConditionalGeneration(facies_transformer_config).to(DEVICE)
+facies_transformer_config = FaciesConfig.from_pretrained(f"{config_path}")
+
+facies_transformer = FaciesForConditionalGeneration(facies_transformer_config).to(
+    DEVICE
+)
 facies_transformer.load_state_dict(torch.load(model_path))
 BATCH_SIZE = 256
 TRAINING_RATIO = 0.90
@@ -79,16 +80,28 @@ for i, batch in enumerate(test_loader):
     decoded_labels = torch.cat((decoded_labels, outputs[:, 1:-1].flatten()))
     if i == 100:
         print(decoded_labels)
+
 print(decoded_labels)
+
 labels = test_dataset.train_label.flatten().to(DEVICE)
-torch.save(decoded_labels, 'y_pred.pt')
-torch.save(labels, 'y_true.pt')
+decoded_labels = decoded_labels[labels != 0]
+labels = labels[labels != 0]
+
+
 # Calculate the accuracy of the model
 correct = (decoded_labels == labels).sum().item()
 accuracy = correct / len(labels)
 print(f"Accuracy: {accuracy}")
 # Save to file
-x = torch
 
+wells_depth = test_dataset.df_position
+index_to_lith_code = {v: k for k, v in utils.get_lithology_numbers().items()}
+y_pred_decoded = np.array([*map(index_to_lith_code.get, decoded_labels.cpu().numpy())])
+y_true_decoded = np.array([*map(index_to_lith_code.get, labels.cpu().numpy())])
+
+wells_depth["FORCE_2020_LITHOFACIES_LITHOLOGY"] = y_pred_decoded
+wells_depth.to_csv("facies_prediction.csv")
+wells_depth["FORCE_2020_LITHOFACIES_LITHOLOGY"] = y_true_decoded
+wells_depth.to_csv("facies.csv")
 # Increase print limit for torch tensor
 torch.set_printoptions(threshold=10000)

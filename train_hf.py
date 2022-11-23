@@ -126,7 +126,10 @@ trainer = Trainer(
 )
 result = trainer.train()
 
-torch.save(facies_transformer.state_dict(), f = f"{model_directory}/facies-transformer/facies_transformer_state_dict.pt")
+torch.save(
+    facies_transformer.state_dict(),
+    f=f"{model_directory}/facies-transformer/facies_transformer_state_dict.pt",
+)
 for j in range(5):
     decoded_labels = torch.empty(0, dtype=torch.long).to(DEVICE)
     for i, batch in enumerate(test_loader):
@@ -139,7 +142,7 @@ for j in range(5):
             num_return_sequences=1,
             num_beams=3,
             max_new_tokens=facies_transformer_config.sequence_len + 1,
-            temperature=.8
+            temperature=0.8,
         )
 
         decoded_labels = torch.cat((decoded_labels, outputs[:, 1:-1].flatten()))

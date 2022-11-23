@@ -99,7 +99,9 @@ class WellsDataset(Dataset):
             self.output_len = len(tuple(set(self.data_df[self.target[0]].to_numpy())))
 
         self.wells = list(self.data_df["WELL"].unique())
-        self.data = self.data_df[["WELL"] + label_columns + feature_columns].dropna()
+        self.data = self.data_df[
+            ["WELL"] + ["DEPTH_MD"] + label_columns + feature_columns
+        ].dropna()
         self.well_indexes = pd.DataFrame(
             self.data["WELL"].apply(lambda x: self.wells.index(x)), columns=["WELL"]
         )
@@ -117,7 +119,7 @@ class WellsDataset(Dataset):
             ) = self.prepare_sequences_to_sequences()
 
     def __getitem__(self, index):
-        return self.train_dataset[index], self.train_label[index]
+        return (self.train_dataset[index], self.train_label[index])
 
     def __len__(self):
         return self.train_len
@@ -142,6 +144,7 @@ class WellsDataset(Dataset):
         if self.scaler is None:
             self.scaler = preprocessing.StandardScaler().fit(X)
         scaled_X = self.scaler.transform(X)
+        self.df_position = self.data[["WELL"] + ["DEPTH_MD"]]
         X_df = pd.DataFrame(scaled_X, columns=X.columns, index=X.index)
         return X_df
 
@@ -158,9 +161,13 @@ class WellsDataset(Dataset):
         y_df = pd.DataFrame(encoded_yi, index=y.index)
         return y_df
 
+    def get_positions_df(self):
+        return self.df_position
+
     def separate_by_well(self):
         training_data = []
         training_labels = []
+
         wells = list(self.well_indexes["WELL"].unique())
         for well_index, _ in enumerate(wells):
             well_rows_index = self.well_indexes[
@@ -168,6 +175,7 @@ class WellsDataset(Dataset):
             ].index
             xi = self.X.loc[well_rows_index].to_numpy()
             yi = self.y.loc[well_rows_index].to_numpy()
+
             training_data.append(xi)
             training_labels.append(yi)
         return training_data, training_labels
@@ -176,14 +184,24 @@ class WellsDataset(Dataset):
         train_dataset = []
         train_label = []
         for x1, y1 in zip(self.X, self.y):
-            train_dataset = (
-                train_dataset
-                + list(torch.split(torch.as_tensor(x1).float(), self.sequence_len))[:-1]
-            )
-            train_label = (
-                train_label
-                + list(torch.split(torch.as_tensor(y1).float(), self.sequence_len))[:-1]
-            )
+            train_dataset_well = list(torch.split(torch.as_tensor(x1).float(), self.sequence_len))
+            train_dataset_label = list(torch.split(torch.as_tensor(y1).float(), self.sequence_len))
+
+            if len(train_dataset_well[-1]) < self.sequence_len:
+                train_dataset_well[-1] = torch.nn.functional.pad(
+                    train_dataset_well[-1],
+                    (0, 0, 0, self.sequence_len - len(train_dataset_well[-1])),
+                    "constant",
+                    self.PAD_IDX,
+                )
+                train_dataset_label[-1] = torch.nn.functional.pad(
+                    train_dataset_label[-1],
+                    (0, 0, 0, self.sequence_len - train_dataset_label[-1].shape[0]),
+                )
+            train_dataset = train_dataset + train_dataset_well
+            train_label =  train_label + train_dataset_label
+            # pad last torch tensor from train_label with zeros so that shape is (sequence_len, 1)
+
         train_dataset = torch.stack(train_dataset, dim=0).permute(0, 1, 2)
         train_label = torch.stack(train_label, dim=0).permute(0, 1, 2).long().squeeze()
         train_len = train_dataset.shape[0]
