@@ -61,6 +61,27 @@ x = [1, 1]
 # plt.show()
 axes = []
 fig, ax_master = plt.subplots(figsize=(30, 20))
+wells = facies_prediction["WELL"].unique()
+total_wells = len(wells)
+for position, well in enumerate(facies_prediction["WELL"].unique()):
+    data = facies_prediction.loc[facies_prediction["WELL"] == well][
+        ["WELL", "DEPTH_MD", "FORCE_2020_LITHOFACIES_LITHOLOGY"]
+    ]
+    ax = make_plot_facies_only(data, lithology_numbers, position, total_wells)
+    axes.append(ax)
+
+for axi in axes:
+    plt.setp(ax.get_yticklabels(), visible=False)
+
+plt.tight_layout()
+fig.subplots_adjust(wspace=0.1)
+plt.show()
+plt.savefig("test_facies.png")
+print("teste")
+
+
+axes = []
+fig, ax_master = plt.subplots(figsize=(30, 20))
 wells = facies["WELL"].unique()
 total_wells = len(wells)
 for position, well in enumerate(facies["WELL"].unique()):
@@ -76,4 +97,5 @@ for axi in axes:
 plt.tight_layout()
 fig.subplots_adjust(wspace=0.1)
 plt.show()
+plt.savefig("true_facies.png")
 print("teste")

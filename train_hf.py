@@ -15,10 +15,10 @@ from datetime import datetime
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-BATCH_SIZE = 128
-SEQUENCE_LEN = 30
-TRAINING_RATIO = 0.90
-WIRELINE_LOGS_HEADER = ["GR", "NPHI"]
+BATCH_SIZE = 256
+SEQUENCE_LEN = 15
+TRAINING_RATIO = 0.95
+WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB", "SP"]
 LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
 
 train_dataset = WellsDataset(
@@ -115,7 +115,7 @@ training_args = TrainingArguments(
     per_device_train_batch_size=BATCH_SIZE,
     per_device_eval_batch_size=BATCH_SIZE,
     evaluation_strategy="epoch",
-    num_train_epochs=5,
+    num_train_epochs=40
 )
 trainer = Trainer(
     model=facies_transformer,
@@ -130,30 +130,24 @@ torch.save(
     facies_transformer.state_dict(),
     f=f"{model_directory}/facies-transformer/facies_transformer_state_dict.pt",
 )
-for j in range(5):
-    decoded_labels = torch.empty(0, dtype=torch.long).to(DEVICE)
-    for i, batch in enumerate(test_loader):
-        input_ids = batch["input_ids"].to(DEVICE)
-        outputs = facies_transformer.generate(
-            input_ids=input_ids,
-            bos_token_id=test_dataset.PAD_IDX,
-            pad_token_id=test_dataset.PAD_IDX,
-            eos_token_id=test_dataset.PAD_IDX,
-            num_return_sequences=1,
-            num_beams=3,
-            max_new_tokens=facies_transformer_config.sequence_len + 1,
-            temperature=0.8,
-        )
+# decoded_labels = torch.empty(0, dtype=torch.long).to(DEVICE)
+# for i, batch in enumerate(test_loader):
+#     input_ids = batch["input_ids"].to(DEVICE)
+#     outputs = facies_transformer.generate(
+#         input_ids=input_ids,
+#         bos_token_id=test_dataset.PAD_IDX,
+#         pad_token_id=test_dataset.PAD_IDX,
+#         eos_token_id=test_dataset.PAD_IDX,
+#         num_return_sequences=1,
+#         num_beams=3,
+#         max_new_tokens=facies_transformer_config.sequence_len + 1,
+#         temperature=0.8,
+#     )
 
-        decoded_labels = torch.cat((decoded_labels, outputs[:, 1:-1].flatten()))
-    print(decoded_labels)
-    labels = test_dataset.train_label.flatten().to(DEVICE)
-    # Calculate the accuracy of the model
-    correct = (decoded_labels == labels).sum().item()
-    accuracy = correct / len(labels)
-    print(f"Accuracy: {accuracy}")
-
-# Increase print limit for torch tensor
-torch.set_printoptions(threshold=10000)
-
-# Loop for generating the output of a sequence for all the data in the test dataloader using model.generate
+#     decoded_labels = torch.cat((decoded_labels, outputs[:, 1:-1].flatten()))
+# print(decoded_labels)
+# labels = test_dataset.train_label.flatten().to(DEVICE)
+# # Calculate the accuracy of the model
+# correct = (decoded_labels == labels).sum().item()
+# accuracy = correct / len(labels)
+# print(f"Accuracy: {accuracy}")
