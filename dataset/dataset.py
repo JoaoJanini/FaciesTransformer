@@ -101,7 +101,7 @@ class WellsDataset(Dataset):
         self.wells = list(self.data_df["WELL"].unique())
         self.data = self.data_df[
             ["WELL"] + ["DEPTH_MD"] + label_columns + feature_columns
-        ].dropna()
+        ].fillna(method = 'ffill').fillna(method = 'bfill')
         self.well_indexes = pd.DataFrame(
             self.data["WELL"].apply(lambda x: self.wells.index(x)), columns=["WELL"]
         )

@@ -14,8 +14,9 @@ from typing import List
 import numpy as np 
 import utils
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-config_path = "/home/joao/code/tcc/seq2seq/saved_models/2022-11-20_18-38-58/facies-transformer-config"
-model_path = "/home/joao/code/tcc/seq2seq/saved_models/2022-11-20_18-38-58/facies-transformer/facies_transformer_state_dict.pt"
+run_path = "/home/joao/code/tcc/seq2seq/saved_models/2022-11-23_02-14-14"
+config_path = "/home/joao/code/tcc/seq2seq/saved_models/2022-11-23_02-14-14/facies-transformer-config"
+model_path = "/home/joao/code/tcc/seq2seq/saved_models/2022-11-23_02-14-14/facies-transformer/facies_transformer_state_dict.pt"
 
 def collate_fn(batch):
     src_batch, tgt_batch = [], []
@@ -35,11 +36,10 @@ facies_transformer = FaciesForConditionalGeneration(facies_transformer_config).t
     DEVICE
 )
 facies_transformer.load_state_dict(torch.load(model_path))
-BATCH_SIZE = 256
+BATCH_SIZE = 128
 TRAINING_RATIO = 0.90
-WIRELINE_LOGS_HEADER = ["GR", "NPHI"]
+WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB", "SP"]
 LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
-
 train_dataset = WellsDataset(
     dataset_type="train",
     sequence_len=facies_transformer_config.sequence_len,
@@ -73,15 +73,11 @@ for i, batch in enumerate(test_loader):
         pad_token_id=test_dataset.PAD_IDX,
         eos_token_id=test_dataset.PAD_IDX,
         num_return_sequences=1,
-        num_beams=10,
+        num_beams=7,
         max_new_tokens=facies_transformer_config.sequence_len + 1,
     )
 
     decoded_labels = torch.cat((decoded_labels, outputs[:, 1:-1].flatten()))
-    if i == 100:
-        print(decoded_labels)
-
-print(decoded_labels)
 
 labels = test_dataset.train_label.flatten().to(DEVICE)
 decoded_labels = decoded_labels[labels != 0]
@@ -100,8 +96,8 @@ y_pred_decoded = np.array([*map(index_to_lith_code.get, decoded_labels.cpu().num
 y_true_decoded = np.array([*map(index_to_lith_code.get, labels.cpu().numpy())])
 
 wells_depth["FORCE_2020_LITHOFACIES_LITHOLOGY"] = y_pred_decoded
-wells_depth.to_csv("facies_prediction.csv")
+wells_depth.to_csv(f"{run_path}/facies_prediction.csv")
 wells_depth["FORCE_2020_LITHOFACIES_LITHOLOGY"] = y_true_decoded
-wells_depth.to_csv("facies.csv")
+wells_depth.to_csv(f"{run_path}/facies.csv")
 # Increase print limit for torch tensor
 torch.set_printoptions(threshold=10000)
