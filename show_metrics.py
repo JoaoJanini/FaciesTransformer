@@ -12,8 +12,12 @@ facies = pd.read_csv(f"{run_path}/facies.csv", sep=",")
 
 y_pred_decoded = np.array(facies_prediction["FORCE_2020_LITHOFACIES_LITHOLOGY"])
 y_true_decoded = np.array(facies["FORCE_2020_LITHOFACIES_LITHOLOGY"])
-y_pred_decoded_lith_names = np.array([*map(utils.get_lithology_names().get, y_pred_decoded)])
-y_true_decoded_lith_names = np.array([*map(utils.get_lithology_names().get, y_true_decoded)])
+y_pred_decoded_lith_names = np.array(
+    [*map(utils.get_lithology_names().get, y_pred_decoded)]
+)
+y_true_decoded_lith_names = np.array(
+    [*map(utils.get_lithology_names().get, y_true_decoded)]
+)
 labels = list(utils.get_lithology_names().values())[1:]
 # utils.get_lithology_numbers to map index to label in both y_true and y_pred
 utils.get_confusion_matrix(y_true_decoded_lith_names, y_pred_decoded_lith_names, labels)

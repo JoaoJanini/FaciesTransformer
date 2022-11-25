@@ -23,7 +23,9 @@ lithology_numbers = {
     93000: {"lith": "Basement", "lith_num": 12, "hatch": "-|", "color": "#ef138a"},
 }
 
-facies_prediction = pd.read_csv("/home/joao/code/tcc/seq2seq/facies_prediction.csv", sep=",")
+facies_prediction = pd.read_csv(
+    "/home/joao/code/tcc/seq2seq/facies_prediction.csv", sep=","
+)
 facies = pd.read_csv("/home/joao/code/tcc/seq2seq/facies.csv", sep=",")
 
 

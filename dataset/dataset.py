@@ -99,9 +99,11 @@ class WellsDataset(Dataset):
             self.output_len = len(tuple(set(self.data_df[self.target[0]].to_numpy())))
 
         self.wells = list(self.data_df["WELL"].unique())
-        self.data = self.data_df[
-            ["WELL"] + ["DEPTH_MD"] + label_columns + feature_columns
-        ].fillna(method = 'ffill').fillna(method = 'bfill')
+        self.data = (
+            self.data_df[["WELL"] + ["DEPTH_MD"] + label_columns + feature_columns]
+            .fillna(method="ffill")
+            .fillna(method="bfill")
+        )
         self.well_indexes = pd.DataFrame(
             self.data["WELL"].apply(lambda x: self.wells.index(x)), columns=["WELL"]
         )
@@ -184,8 +186,12 @@ class WellsDataset(Dataset):
         train_dataset = []
         train_label = []
         for x1, y1 in zip(self.X, self.y):
-            train_dataset_well = list(torch.split(torch.as_tensor(x1).float(), self.sequence_len))
-            train_dataset_label = list(torch.split(torch.as_tensor(y1).float(), self.sequence_len))
+            train_dataset_well = list(
+                torch.split(torch.as_tensor(x1).float(), self.sequence_len)
+            )
+            train_dataset_label = list(
+                torch.split(torch.as_tensor(y1).float(), self.sequence_len)
+            )
 
             if len(train_dataset_well[-1]) < self.sequence_len:
                 train_dataset_well[-1] = torch.nn.functional.pad(
@@ -199,7 +205,7 @@ class WellsDataset(Dataset):
                     (0, 0, 0, self.sequence_len - train_dataset_label[-1].shape[0]),
                 )
             train_dataset = train_dataset + train_dataset_well
-            train_label =  train_label + train_dataset_label
+            train_label = train_label + train_dataset_label
             # pad last torch tensor from train_label with zeros so that shape is (sequence_len, 1)
 
         train_dataset = torch.stack(train_dataset, dim=0).permute(0, 1, 2)

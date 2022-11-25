@@ -12,11 +12,12 @@ from dataset.dataset import WellsDataset
 from torch.utils.data import random_split
 from typing import List
 from datetime import datetime
+from utils import compute_metrics_fn
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 BATCH_SIZE = 256
-SEQUENCE_LEN = 15
+SEQUENCE_LEN = 5
 TRAINING_RATIO = 0.95
 WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB", "SP"]
 LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
@@ -84,7 +85,7 @@ facies_config = {
     "n_input_features": d_channel,
     "n_output_features": d_output,
     "sequence_len": SEQUENCE_LEN,
-    "dropout": 0.2,
+    "dropout": 0,
     "attention_dropout": 0.0,
     "activation_dropout": 0.0,
     "init_std": 0.02,
@@ -115,7 +116,7 @@ training_args = TrainingArguments(
     per_device_train_batch_size=BATCH_SIZE,
     per_device_eval_batch_size=BATCH_SIZE,
     evaluation_strategy="epoch",
-    num_train_epochs=40
+    num_train_epochs=40,
 )
 trainer = Trainer(
     model=facies_transformer,
@@ -123,6 +124,7 @@ trainer = Trainer(
     eval_dataset=validation_data,
     data_collator=collate_fn,
     args=training_args,
+    compute_metrics= compute_metrics_fn
 )
 result = trainer.train()
 

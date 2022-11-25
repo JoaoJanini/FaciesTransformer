@@ -11,10 +11,10 @@ torchmetrics
 transformers
 accelerate
 ray[tune]
-transformers datasets 
 datasets 
 scipy
 tensorboardX
 tensorboard-plugin-profile
 torchsummary
 pycaret
+hyperopt

@@ -82,7 +82,7 @@ class FaciesModelEncoder(PreTrainedModel):
             d_model=config.d_model,
             nhead=config.encoder_attention_heads,
             dim_feedforward=config.encoder_ffn_dim,
-            dropout=config.dropout,
+            dropout=config.encoder_layerdrop,
             batch_first=True,
         )
         self.norm = LayerNorm(config.d_model)
@@ -127,7 +127,7 @@ class FaciesModelDecoder(PreTrainedModel):
             d_model=config.d_model,
             nhead=config.decoder_attention_heads,
             dim_feedforward=config.decoder_ffn_dim,
-            dropout=config.dropout,
+            dropout=config.decoder_layerdrop,
             batch_first=True,
         )
         self.norm = LayerNorm(config.d_model)
@@ -137,7 +137,7 @@ class FaciesModelDecoder(PreTrainedModel):
             norm=self.norm,
         )
         self.positional_encoding = PositionalEncoding(
-            config.d_model, dropout=config.dropout
+            config.d_model
         )
         self.embed_tokens = nn.Embedding(
             config.vocab_size, config.d_model, config.pad_token_id
@@ -228,6 +228,7 @@ class FaciesModelDecoder(PreTrainedModel):
             )
 
         hidden_state = self.positional_encoding(inputs_embeds)
+
         decoder_outputs = self.model(
             hidden_state,
             encoder_hidden_states,

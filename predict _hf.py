@@ -11,12 +11,14 @@ from torch.utils.data import DataLoader
 from dataset.dataset import WellsDataset
 from torch.utils.data import random_split
 from typing import List
-import numpy as np 
+import numpy as np
 import utils
+
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 run_path = "/home/joao/code/tcc/seq2seq/saved_models/2022-11-23_02-14-14"
 config_path = "/home/joao/code/tcc/seq2seq/saved_models/2022-11-23_02-14-14/facies-transformer-config"
 model_path = "/home/joao/code/tcc/seq2seq/saved_models/2022-11-23_02-14-14/facies-transformer/facies_transformer_state_dict.pt"
+
 
 def collate_fn(batch):
     src_batch, tgt_batch = [], []

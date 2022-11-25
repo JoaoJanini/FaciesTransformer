@@ -1,13 +1,26 @@
 from sklearn import metrics
-
 import numpy as np
 import pandas as pd
-from pretty_confusion_matrix import pp_matrix
 import seaborn as sn
 import matplotlib.pyplot as plt
-import pandas as pd
-import matplotlib.pyplot as plt
 
+from transformers import TrainingArguments, Trainer, logging
+import torchmetrics
+import math
+import time
+from torch import nn, optim
+from torch.optim import Adam
+import torch
+from torch.utils.data import DataLoader
+from dataset.dataset import WellsDataset
+from torch.utils.data import random_split
+from typing import List
+from datetime import datetime
+from transformers import Trainer, TrainingArguments
+from datasets import load_dataset, load_metric
+from ray.tune.schedulers import PopulationBasedTraining
+from ray.tune.search.hyperopt import HyperOptSearch
+from ray import tune
 
 def get_lithology_numbers():
     lithology_numbers = {
@@ -117,7 +130,12 @@ def make_plot_facies_only(well, lithology_numbers, plot_position, total_wells):
     ax13.xaxis.set_visible(False)
 
     # Lithology track
-    ax.plot(well["FORCE_2020_LITHOFACIES_LITHOLOGY"], well["DEPTH_MD"], color="black", linewidth=0.5)
+    ax.plot(
+        well["FORCE_2020_LITHOFACIES_LITHOLOGY"],
+        well["DEPTH_MD"],
+        color="black",
+        linewidth=0.5,
+    )
     ax.set_xlabel(well_name)
     ax.set_xlim(0, 1)
     ax.xaxis.label.set_color("black")
@@ -261,3 +279,54 @@ def plot_facies(data):
                 F, aspect="auto", extent=[0, 1, max(data.DEPTH), min(data.DEPTH)]
             )
             ax[i].set_title("FACIES")
+
+
+def ray_hp_space(trial):
+    return {
+        "learning_rate": tune.loguniform(1e-6, 1e-4),
+        "per_device_train_batch_size": tune.choice([16, 32, 64, 128]),
+        "weight_decay": tune.uniform(0.0, 0.3),
+        "num_train_epochs": tune.choice([5, 10, 15, 30]),
+    }
+
+
+def compute_metrics_fn(eval_preds):
+    metrics = dict()
+
+    accuracy_metric = load_metric("accuracy")
+    precision_metric = load_metric("precision")
+    recall_metric = load_metric("recall")
+    f1_metric = load_metric("f1")
+    preds = eval_preds.predictions.argmax(axis=-1)
+    preds = preds.flatten()
+    labels = eval_preds.label_ids.flatten()
+    preds = preds[labels != 0]
+    labels = labels[labels != 0]
+
+    metrics.update(accuracy_metric.compute(predictions=preds, references=labels))
+    metrics.update(
+        precision_metric.compute(
+            predictions=preds, references=labels, average="weighted"
+        )
+    )
+    metrics.update(
+        recall_metric.compute(predictions=preds, references=labels, average="weighted")
+    )
+    metrics.update(
+        f1_metric.compute(predictions=preds, references=labels, average="weighted")
+    )
+
+    return metrics
+
+
+def collate_fn(batch):
+    src_batch, tgt_batch = [], []
+    for src_sample, tgt_sample in batch:
+        tgt_batch.append(tgt_sample)
+        src_batch.append(src_sample)
+
+    src_batch = torch.stack(src_batch)
+    tgt_batch = torch.stack(tgt_batch)
+
+    model_input = {"input_ids": src_batch, "labels": tgt_batch}
+    return model_input

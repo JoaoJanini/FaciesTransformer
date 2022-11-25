@@ -28,6 +28,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+mlruns/**
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -82,7 +83,6 @@ target/
 # IPython
 profile_default/
 ipython_config.py
-
 # pyenv
 .python-version
 
