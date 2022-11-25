@@ -92,15 +92,18 @@ class WellsDataset(Dataset):
         self.scaler = scaler
         self.output_len = output_len
         # Define special symbols and indices
-        self.UNK_IDX, self.PAD_IDX, self.BOS_IDX, self.EOS_IDX = 0, 1, 2, 3
+        self.PAD_IDX = 0
+        self.special_symbols = [self.PAD_IDX]
         # Make sure the tokens are in order of their indices to properly insert them in vocab
-        self.special_symbols = ["<unk>", "<pad>", "<bos>", "<eos>"]
-
-        if self.output_len == None:
+        if self.output_len is None:
             self.output_len = len(tuple(set(self.data_df[self.target[0]].to_numpy())))
 
         self.wells = list(self.data_df["WELL"].unique())
-        self.data = self.data_df[["WELL"] + label_columns + feature_columns].dropna()
+        self.data = (
+            self.data_df[["WELL"] + ["DEPTH_MD"] + label_columns + feature_columns]
+            .fillna(method="ffill")
+            .fillna(method="bfill")
+        )
         self.well_indexes = pd.DataFrame(
             self.data["WELL"].apply(lambda x: self.wells.index(x)), columns=["WELL"]
         )
@@ -118,7 +121,7 @@ class WellsDataset(Dataset):
             ) = self.prepare_sequences_to_sequences()
 
     def __getitem__(self, index):
-        return self.train_dataset[index], self.train_label[index]
+        return (self.train_dataset[index], self.train_label[index])
 
     def __len__(self):
         return self.train_len
@@ -140,9 +143,10 @@ class WellsDataset(Dataset):
 
     def prepare_X(self):
         X = self.data[self.feature_columns]
-        if self.scaler == None:
+        if self.scaler is None:
             self.scaler = preprocessing.StandardScaler().fit(X)
         scaled_X = self.scaler.transform(X)
+        self.df_position = self.data[["WELL"] + ["DEPTH_MD"]]
         X_df = pd.DataFrame(scaled_X, columns=X.columns, index=X.index)
         return X_df
 
@@ -159,9 +163,13 @@ class WellsDataset(Dataset):
         y_df = pd.DataFrame(encoded_yi, index=y.index)
         return y_df
 
+    def get_positions_df(self):
+        return self.df_position
+
     def separate_by_well(self):
         training_data = []
         training_labels = []
+
         wells = list(self.well_indexes["WELL"].unique())
         for well_index, _ in enumerate(wells):
             well_rows_index = self.well_indexes[
@@ -169,6 +177,7 @@ class WellsDataset(Dataset):
             ].index
             xi = self.X.loc[well_rows_index].to_numpy()
             yi = self.y.loc[well_rows_index].to_numpy()
+
             training_data.append(xi)
             training_labels.append(yi)
         return training_data, training_labels
@@ -177,14 +186,28 @@ class WellsDataset(Dataset):
         train_dataset = []
         train_label = []
         for x1, y1 in zip(self.X, self.y):
-            train_dataset = (
-                train_dataset
-                + list(torch.split(torch.as_tensor(x1).float(), self.sequence_len))[:-1]
+            train_dataset_well = list(
+                torch.split(torch.as_tensor(x1).float(), self.sequence_len)
             )
-            train_label = (
-                train_label
-                + list(torch.split(torch.as_tensor(y1).float(), self.sequence_len))[:-1]
+            train_dataset_label = list(
+                torch.split(torch.as_tensor(y1).float(), self.sequence_len)
             )
+
+            if len(train_dataset_well[-1]) < self.sequence_len:
+                train_dataset_well[-1] = torch.nn.functional.pad(
+                    train_dataset_well[-1],
+                    (0, 0, 0, self.sequence_len - len(train_dataset_well[-1])),
+                    "constant",
+                    self.PAD_IDX,
+                )
+                train_dataset_label[-1] = torch.nn.functional.pad(
+                    train_dataset_label[-1],
+                    (0, 0, 0, self.sequence_len - train_dataset_label[-1].shape[0]),
+                )
+            train_dataset = train_dataset + train_dataset_well
+            train_label = train_label + train_dataset_label
+            # pad last torch tensor from train_label with zeros so that shape is (sequence_len, 1)
+
         train_dataset = torch.stack(train_dataset, dim=0).permute(0, 1, 2)
         train_label = torch.stack(train_label, dim=0).permute(0, 1, 2).long().squeeze()
         train_len = train_dataset.shape[0]
@@ -194,32 +217,26 @@ class WellsDataset(Dataset):
 
     def get_lithology_numbers(self):
         lithology_numbers = {
-            self.UNK_IDX: self.UNK_IDX,
             self.PAD_IDX: self.PAD_IDX,
-            self.BOS_IDX: self.BOS_IDX,
-            self.EOS_IDX: self.EOS_IDX,
-            30000: 4,
-            65030: 5,
-            65000: 6,
-            80000: 7,
-            74000: 8,
-            70000: 9,
-            70032: 10,
-            88000: 11,
-            86000: 12,
-            99000: 13,
-            90000: 14,
-            93000: 15,
+            30000: 1,
+            65030: 2,
+            65000: 3,
+            80000: 4,
+            74000: 5,
+            70000: 6,
+            70032: 7,
+            88000: 8,
+            86000: 9,
+            99000: 10,
+            90000: 11,
+            93000: 12,
         }
         return lithology_numbers
 
     def get_lithology_names(self):
         # Define special symbols and indices
         lithology_names = {
-            self.UNK_IDX: "<unk>",
             self.PAD_IDX: "<pad>",
-            self.BOS_IDX: "<bos>",
-            self.EOS_IDX: "<eos>",
             30000: "Sandstone",
             65030: "Sandstone/Shale",
             65000: "Shale",
