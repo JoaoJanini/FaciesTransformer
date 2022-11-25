@@ -1,4 +1,4 @@
-from transformers import TrainingArguments, Trainer, logging
+from transformers import TrainingArguments, Trainer
 from hf_sequence_to_sequence.model import FaciesForConditionalGeneration
 from hf_sequence_to_sequence.configuration import FaciesConfig
 import torchmetrics
@@ -12,13 +12,13 @@ from dataset.dataset import WellsDataset
 from torch.utils.data import random_split
 from typing import List
 from datetime import datetime
-from utils import compute_metrics_fn
+from datasets import load_dataset, load_metric
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-BATCH_SIZE = 256
-SEQUENCE_LEN = 5
-TRAINING_RATIO = 0.95
+BATCH_SIZE = 64
+SEQUENCE_LEN = 30
+TRAINING_RATIO = 0.90
 WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB", "SP"]
 LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
 
@@ -116,15 +116,14 @@ training_args = TrainingArguments(
     per_device_train_batch_size=BATCH_SIZE,
     per_device_eval_batch_size=BATCH_SIZE,
     evaluation_strategy="epoch",
-    num_train_epochs=40,
+    num_train_epochs=10,
 )
 trainer = Trainer(
     model=facies_transformer,
     train_dataset=train_data,
-    eval_dataset=validation_data,
     data_collator=collate_fn,
-    args=training_args,
-    compute_metrics= compute_metrics_fn
+    eval_dataset=validation_data,
+    args=training_args
 )
 result = trainer.train()
 

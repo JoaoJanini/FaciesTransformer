@@ -14,7 +14,7 @@ from typing import List
 from datetime import datetime
 from transformers import Trainer, TrainingArguments
 from datasets import load_dataset, load_metric
-from utils import compute_metrics_fn, collate_fn, ray_hp_space
+from utils import collate_fn
 from ray.tune.schedulers import PopulationBasedTraining
 from ray.tune.search.hyperopt import HyperOptSearch
 

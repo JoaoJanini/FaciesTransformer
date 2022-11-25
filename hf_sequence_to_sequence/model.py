@@ -6,6 +6,7 @@ from transformers import PreTrainedModel
 from hf_sequence_to_sequence.configuration import FaciesConfig
 from hf_sequence_to_sequence.embedding import PositionalEncoding, Embeddings
 import torch.utils.checkpoint
+import torch.nn.functional as F
 from torch.nn import (
     TransformerEncoder,
     TransformerEncoderLayer,
@@ -73,8 +74,7 @@ def shift_tokens_right(
 
     return shifted_input_ids
 
-
-class FaciesModelEncoder(PreTrainedModel):
+class FaciesModelEncoderTS(PreTrainedModel):
     def __init__(self, config: FaciesConfig):
         super().__init__(config)
         self.config = config
@@ -86,17 +86,51 @@ class FaciesModelEncoder(PreTrainedModel):
             batch_first=True,
         )
         self.norm = LayerNorm(config.d_model)
-        self.model = TransformerEncoder(
+        self.model_timestep = TransformerEncoder(
             encoder_layer=self.encoder_layer,
             num_layers=config.encoder_layers,
             norm=self.norm,
         )
-        self.embed_tokens = torch.nn.Linear(config.sequence_len, config.d_model)
 
+
+        self.project_inp = nn.Linear(feat_dim, d_model)
+        self.pos_enc = get_pos_encoder(pos_encoding)(d_model, dropout=dropout*(1.0 - freeze), max_len=max_len)
+
+        if norm == 'LayerNorm':
+            encoder_layer = TransformerEncoderLayer(d_model, self.n_heads, dim_feedforward, dropout*(1.0 - freeze), activation=activation)
+        else:
+            encoder_layer = TransformerBatchNormEncoderLayer(d_model, self.n_heads, dim_feedforward, dropout*(1.0 - freeze), activation=activation)
+
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers)
+
+        self.output_layer = nn.Linear(d_model, feat_dim)
+
+        self.act = _get_activation_fn(activation)
+
+        self.dropout1 = nn.Dropout(dropout)
+
+        self.feat_dim = feat_dim
+
+
+        
+        self.model_channel = TransformerEncoder(
+            encoder_layer=self.encoder_layer,
+            num_layers=config.encoder_layers,
+            norm=self.norm,
+        )
+
+        self.embed_tokens_channel = torch.nn.Linear(config.sequence_len, config.d_model)
+        self.embed_tokens_steps = torch.nn.Linear(config.n_input_features, config.d_model)
+        self.positional_encoding = PositionalEncoding(
+            config.d_model, config.dropout
+        )
+
+        self.gate = torch.nn.Linear(config.d_model * config.n_input_features + config.d_model * config.sequence_len, 2)
+        self.output_linear = torch.nn.Linear(config.d_model * config.n_input_features + config.d_model * config.sequence_len, config.d_model)
         # Initialize weights and apply final processing
 
     def get_input_embeddings(self):
-        return self.embed_tokens
+        return self.embed_tokens_channel
 
     def forward(
         self,
@@ -109,11 +143,95 @@ class FaciesModelEncoder(PreTrainedModel):
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, Seq2SeqModelOutput]:
 
-        channel_encoding = self.embed_tokens(input_ids.transpose(-1, -2))
+        # step-wise
+        # score矩阵为 input， 默认加mask 和 pe
+        encoding_1 = self.embed_tokens_steps(input_ids)
+        encoding_1 = self.positional_encoding(encoding_1)
+        output_encoder_1 = self.model_timestep(encoding_1, mask=None, src_key_padding_mask=None)
 
-        output_encoder = self.model(
+        channel_encoding = self.embed_tokens_channel(input_ids.transpose(-1, -2))
+
+        output_encoder_2 = self.model_channel(
             channel_encoding, mask=None, src_key_padding_mask=None
         )
+        output_encoder_1 = output_encoder_1.reshape(output_encoder_1.shape[0], -1)
+        output_encoder_2 = output_encoder_2.reshape(output_encoder_2.shape[0], -1)
+        gate = F.softmax(self.gate(torch.cat([output_encoder_1, output_encoder_2], dim=-1)), dim=-1)
+        encoding = torch.cat([output_encoder_1 * gate[:, 0:1], output_encoder_2 * gate[:, 1:2]], dim=-1)
+
+        # 输出
+        output_encoder = self.output_linear(encoding)
+        output_encoder = output_encoder.reshape(output_encoder.shape[0],13,output_encoder.shape[1])
+
+
+        return BaseModelOutput(last_hidden_state=output_encoder)
+class FaciesModelEncoder(PreTrainedModel):
+    def __init__(self, config: FaciesConfig):
+        super().__init__(config)
+        self.config = config
+        self.encoder_layer = TransformerEncoderLayer(
+            d_model=config.d_model,
+            nhead=config.encoder_attention_heads,
+            dim_feedforward=config.encoder_ffn_dim,
+            dropout=config.encoder_layerdrop,
+            batch_first=True,
+        )
+        self.norm = LayerNorm(config.d_model)
+        self.model_timestep = TransformerEncoder(
+            encoder_layer=self.encoder_layer,
+            num_layers=config.encoder_layers,
+            norm=self.norm,
+        )
+        self.model_channel = TransformerEncoder(
+            encoder_layer=self.encoder_layer,
+            num_layers=config.encoder_layers,
+            norm=self.norm,
+        )
+
+        self.embed_tokens_channel = torch.nn.Linear(config.sequence_len, config.d_model)
+        self.embed_tokens_steps = torch.nn.Linear(config.n_input_features, config.d_model)
+        self.positional_encoding = PositionalEncoding(
+            config.d_model, config.dropout
+        )
+
+        self.gate = torch.nn.Linear(config.d_model * config.n_input_features + config.d_model * config.sequence_len, 2)
+        self.output_linear = torch.nn.Linear(config.d_model * config.n_input_features + config.d_model * config.sequence_len, config.d_model)
+        # Initialize weights and apply final processing
+
+    def get_input_embeddings(self):
+        return self.embed_tokens_channel
+
+    def forward(
+        self,
+        input_ids: torch.LongTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ) -> Union[Tuple, Seq2SeqModelOutput]:
+
+        # step-wise
+        # score矩阵为 input， 默认加mask 和 pe
+        encoding_1 = self.embed_tokens_steps(input_ids)
+        encoding_1 = self.positional_encoding(encoding_1)
+        output_encoder_1 = self.model_timestep(encoding_1, mask=None, src_key_padding_mask=None)
+
+        channel_encoding = self.embed_tokens_channel(input_ids.transpose(-1, -2))
+
+        output_encoder_2 = self.model_channel(
+            channel_encoding, mask=None, src_key_padding_mask=None
+        )
+        output_encoder_1 = output_encoder_1.reshape(output_encoder_1.shape[0], -1)
+        output_encoder_2 = output_encoder_2.reshape(output_encoder_2.shape[0], -1)
+        gate = F.softmax(self.gate(torch.cat([output_encoder_1, output_encoder_2], dim=-1)), dim=-1)
+        encoding = torch.cat([output_encoder_1 * gate[:, 0:1], output_encoder_2 * gate[:, 1:2]], dim=-1)
+
+        # 输出
+        output_encoder = self.output_linear(encoding)
+        output_encoder = output_encoder.reshape(output_encoder.shape[0],1,output_encoder.shape[1])
+
 
         return BaseModelOutput(last_hidden_state=output_encoder)
 
@@ -257,7 +375,7 @@ class FaciesModel(PreTrainedModel):
 
     def set_input_embeddings(self, value):
         self.shared = value
-        self.encoder.embed_tokens = self.shared
+        self.encoder.embed_tokens_channel = self.shared
         self.decoder.embed_tokens = self.decoder_inputs_embed
 
     def get_encoder(self):
