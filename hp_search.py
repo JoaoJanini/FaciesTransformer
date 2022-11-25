@@ -50,7 +50,7 @@ train_data, validation_data = random_split(
     train_dataset, lengths=[TRAIN_DATA_LEN, DATA_LEN - TRAIN_DATA_LEN]
 )
 
-# function to collate data samples into batch tesors
+
 
 
 facies_config = {
@@ -93,6 +93,43 @@ facies_transformer_config = FaciesConfig.from_pretrained(
 )
 
 
+# function to collate data samples into batch tesors
+def ray_hp_space(trial):
+    return {
+        "learning_rate": tune.loguniform(1e-6, 1e-4),
+        "per_device_train_batch_size": tune.choice([16, 32, 64, 128]),
+        "weight_decay": tune.uniform(0.0, 0.3),
+        "num_train_epochs": tune.choice([5, 10, 15, 30]),
+    }
+
+
+def compute_metrics_fn(eval_preds):
+    metrics = dict()
+
+    accuracy_metric = load_metric("accuracy")
+    precision_metric = load_metric("precision")
+    recall_metric = load_metric("recall")
+    f1_metric = load_metric("f1")
+    preds = eval_preds.predictions.argmax(axis=-1)
+    preds = preds.flatten()
+    labels = eval_preds.label_ids.flatten()
+    preds = preds[labels != 0]
+    labels = labels[labels != 0]
+
+    metrics.update(accuracy_metric.compute(predictions=preds, references=labels))
+    metrics.update(
+        precision_metric.compute(
+            predictions=preds, references=labels, average="weighted"
+        )
+    )
+    metrics.update(
+        recall_metric.compute(predictions=preds, references=labels, average="weighted")
+    )
+    metrics.update(
+        f1_metric.compute(predictions=preds, references=labels, average="weighted")
+    )
+
+    return metrics
 def model_init(trial):
 
     return FaciesForConditionalGeneration(facies_transformer_config)
