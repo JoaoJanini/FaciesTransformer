@@ -3,7 +3,6 @@ torchvision
 numpy
 tqdm
 tensorboard>=1.14
-torchtext
 pandas
 requests
 sklearn
@@ -16,5 +15,4 @@ scipy
 tensorboardX
 tensorboard-plugin-profile
 torchsummary
-pycaret
 hyperopt
