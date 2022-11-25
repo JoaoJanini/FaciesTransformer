@@ -137,7 +137,7 @@ class FaciesModelDecoder(PreTrainedModel):
             norm=self.norm,
         )
         self.positional_encoding = PositionalEncoding(
-            config.d_model
+            config.d_model, config.dropout
         )
         self.embed_tokens = nn.Embedding(
             config.vocab_size, config.d_model, config.pad_token_id
