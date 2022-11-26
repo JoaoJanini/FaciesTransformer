@@ -17,7 +17,7 @@ from datasets import load_dataset, load_metric
 from utils import collate_fn
 from ray.tune.schedulers import PopulationBasedTraining
 from ray.tune.search.hyperopt import HyperOptSearch
-
+from ray import tune
 # define function to compute metrics
 import numpy as np
 
@@ -97,7 +97,7 @@ def ray_hp_space(trial):
         "learning_rate": tune.loguniform(1e-6, 1e-4),
         "per_device_train_batch_size": tune.choice([16, 32, 64, 128]),
         "weight_decay": tune.uniform(0.0, 0.3),
-        "num_train_epochs": tune.choice([5, 10, 15, 30]),
+        "num_train_epochs": tune.choice([2]),
     }
 
 
@@ -115,17 +115,6 @@ def compute_metrics_fn(eval_preds):
     labels = labels[labels != 0]
 
     metrics.update(accuracy_metric.compute(predictions=preds, references=labels))
-    metrics.update(
-        precision_metric.compute(
-            predictions=preds, references=labels, average="weighted"
-        )
-    )
-    metrics.update(
-        recall_metric.compute(predictions=preds, references=labels, average="weighted")
-    )
-    metrics.update(
-        f1_metric.compute(predictions=preds, references=labels, average="weighted")
-    )
 
     return metrics
 

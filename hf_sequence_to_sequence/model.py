@@ -160,11 +160,10 @@ class FaciesModelEncoder(PreTrainedModel):
             num_layers=config.encoder_layers,
             norm=self.norm,
         )
-        self.embed_tokens_channel = torch.nn.Linear(self.config.n_input_features, config.d_model)
+        self.embed_tokens_channel = torch.nn.Linear(config.sequence_len, config.d_model)
         self.embed_tokens_steps = torch.nn.Linear(
-            config.sequence_len, config.d_model
+            self.config.n_input_features, config.d_model
         )
-
         self.positional_encoding = PositionalEncoding(config.d_model, config.dropout)
 
         self.gate = torch.nn.Linear(
@@ -194,6 +193,11 @@ class FaciesModelEncoder(PreTrainedModel):
     ) -> Union[Tuple, Seq2SeqModelOutput]:
         # step-wise
         # score矩阵为 input， 默认加mask 和 pe
+
+        # get categorical features from input_ids
+        # cat_features = input_ids[:, :, self.cat_features_indexes[0]]
+        # get numerical features from input_ids
+
         encoding_1 = self.embed_tokens_steps(input_ids)
         encoding_1 = self.positional_encoding(encoding_1)
         output_encoder_1 = self.model_timestep(
@@ -602,19 +606,11 @@ class FaciesForClassification(PreTrainedModel):
             return_dict if return_dict is not None else self.config.use_return_dict
         )
 
-        outputs = self.model(
-            input_ids,
+        encoder_outputs = self.encoder(
+            input_ids=input_ids,
             attention_mask=attention_mask,
-            decoder_input_ids=decoder_input_ids,
-            encoder_outputs=encoder_outputs,
-            decoder_attention_mask=decoder_attention_mask,
             head_mask=head_mask,
-            decoder_head_mask=decoder_head_mask,
-            cross_attn_head_mask=cross_attn_head_mask,
-            past_key_values=past_key_values,
             inputs_embeds=inputs_embeds,
-            decoder_inputs_embeds=decoder_inputs_embeds,
-            use_cache=use_cache,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,

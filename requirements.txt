@@ -16,3 +16,4 @@ tensorboardX
 tensorboard-plugin-profile
 torchsummary
 hyperopt
+evaluate 
