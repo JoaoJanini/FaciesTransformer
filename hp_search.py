@@ -51,8 +51,6 @@ train_data, validation_data = random_split(
 )
 
 
-
-
 facies_config = {
     "vocab_size": tgt_vocab_size,
     "max_position_embeddings": 1024,
@@ -130,6 +128,8 @@ def compute_metrics_fn(eval_preds):
     )
 
     return metrics
+
+
 def model_init(trial):
 
     return FaciesForConditionalGeneration(facies_transformer_config)
@@ -139,7 +139,7 @@ training_args = TrainingArguments(
     output_dir=f"{model_directory}/facies-transformer",
     evaluation_strategy="steps",
     eval_steps=500,
-    disable_tqdm=True
+    disable_tqdm=True,
 )
 
 trainer = Trainer(
@@ -156,7 +156,7 @@ best_model = trainer.hyperparameter_search(
     backend="ray",
     n_trials=10,
     search_alg=HyperOptSearch(metric="objective", mode="max"),
-    hp_space=ray_hp_space, 
+    hp_space=ray_hp_space,
     local_dir=f"{model_directory}/ray_results",
 )
 

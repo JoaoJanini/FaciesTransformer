@@ -3,10 +3,11 @@ import utils
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
 from utils import makeplot, make_plot_facies_only
 
-run_path = "/home/joao/code/tcc/seq2seq/saved_models/2022-11-23_02-14-14"
+with open("current_model.txt", "r") as f:
+    current_model = f.read()
+run_path = f"/home/joao/code/tcc/seq2seq/{current_model}"
 facies_prediction = pd.read_csv(f"{run_path}/facies_prediction.csv", sep=",")
 facies = pd.read_csv(f"{run_path}/facies.csv", sep=",")
 
@@ -22,8 +23,27 @@ labels = list(utils.get_lithology_names().values())[1:]
 # utils.get_lithology_numbers to map index to label in both y_true and y_pred
 utils.get_confusion_matrix(y_true_decoded_lith_names, y_pred_decoded_lith_names, labels)
 utils.get_metrics(y_true_decoded_lith_names, y_pred_decoded_lith_names, labels)
-# print(utils.score(y_true, y_pred))
 
+original_lithology_numbers = {
+    0: 0,
+    30000: 0,
+    65030: 1,
+    65000: 2,
+    80000: 3,
+    74000: 4,
+    70000: 5,
+    70032: 6,
+    88000: 7,
+    86000: 8,
+    99000: 9,
+    90000: 10,
+    93000: 11,
+}
+# map lithology numbers to index using original_lithology_numbers for y_true_decoded and y_pred_decoded
+y_true = np.array( [*map(original_lithology_numbers.get, y_true_decoded)] )
+y_pred = np.array( [*map(original_lithology_numbers.get, y_pred_decoded)] )
+
+print(utils.score(y_true, y_pred))
 lithology_numbers = {
     30000: {"lith": "Sandstone", "lith_num": 1, "hatch": "..", "color": "#ffff00"},
     65030: {

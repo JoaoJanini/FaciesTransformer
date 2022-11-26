@@ -93,6 +93,7 @@ class FaciesConfig(PretrainedConfig):
         d_model=1024,
         n_input_features=2,
         sequence_len=5,
+        cat_features_indexes=[],
         dropout=0.1,
         attention_dropout=0.0,
         activation_dropout=0.0,
@@ -119,6 +120,7 @@ class FaciesConfig(PretrainedConfig):
         self.encoder_attention_heads = encoder_attention_heads
         self.decoder_ffn_dim = decoder_ffn_dim
         self.decoder_layers = decoder_layers
+        self.cat_features_indexes = cat_features_indexes
         self.decoder_attention_heads = decoder_attention_heads
         self.dropout = dropout
         self.attention_dropout = attention_dropout

@@ -22,6 +22,7 @@ from ray.tune.schedulers import PopulationBasedTraining
 from ray.tune.search.hyperopt import HyperOptSearch
 from ray import tune
 
+
 def get_lithology_numbers():
     lithology_numbers = {
         0: 0,
@@ -279,8 +280,6 @@ def plot_facies(data):
                 F, aspect="auto", extent=[0, 1, max(data.DEPTH), min(data.DEPTH)]
             )
             ax[i].set_title("FACIES")
-
-
 
 
 def collate_fn(batch):

@@ -17,9 +17,10 @@ from datasets import load_dataset, load_metric
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 BATCH_SIZE = 64
-SEQUENCE_LEN = 30
-TRAINING_RATIO = 0.90
-WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB", "SP"]
+SEQUENCE_LEN = 20
+TRAINING_RATIO = 0.95
+WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB"]
+CATEGORICAL_COLUMNS = ["FORMATION", "GROUP"]
 LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
 
 train_dataset = WellsDataset(
@@ -27,16 +28,8 @@ train_dataset = WellsDataset(
     sequence_len=SEQUENCE_LEN,
     model_type="seq2seq",
     feature_columns=WIRELINE_LOGS_HEADER,
+    categorical_features_columns=CATEGORICAL_COLUMNS,
     label_columns=LABEL_COLUMN_HEADER,
-)
-test_dataset = WellsDataset(
-    dataset_type="test",
-    sequence_len=SEQUENCE_LEN,
-    model_type="seq2seq",
-    feature_columns=WIRELINE_LOGS_HEADER,
-    label_columns=LABEL_COLUMN_HEADER,
-    scaler=train_dataset.scaler,
-    output_len=train_dataset.output_len,
 )
 
 DATA_LEN = train_dataset.train_len
@@ -51,8 +44,6 @@ train_data, validation_data = random_split(
 )
 
 # function to collate data samples into batch tesors
-
-
 def collate_fn(batch):
     src_batch, tgt_batch = [], []
     for src_sample, tgt_sample in batch:
@@ -66,30 +57,28 @@ def collate_fn(batch):
     return model_input
 
 
-test_loader = DataLoader(
-    dataset=test_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn
-)
 facies_config = {
     "vocab_size": tgt_vocab_size,
     "max_position_embeddings": 1024,
-    "encoder_layers": 6,
+    "encoder_layers": 5,
     "encoder_ffn_dim": 1024,
     "encoder_attention_heads": 8,
-    "decoder_layers": 4,
-    "decoder_ffn_dim": 1024,
+    "decoder_layers": 5,
+    "decoder_ffn_dim": 512,
+    "cat_features_indexes": train_dataset.categorical_columns_indexes,
     "decoder_attention_heads": 8,
-    "encoder_layerdrop": 0.0,
-    "decoder_layerdrop": 0.0,
+    "encoder_layerdrop": 0.3,
+    "decoder_layerdrop": 0.1,
     "activation_function": "relu",
     "d_model": 512,
     "n_input_features": d_channel,
     "n_output_features": d_output,
     "sequence_len": SEQUENCE_LEN,
-    "dropout": 0,
-    "attention_dropout": 0.0,
-    "activation_dropout": 0.0,
+    "dropout": 0.3,
+    "attention_dropout": 0.3,
+    "activation_dropout": 0.3,
     "init_std": 0.02,
-    "classifier_dropout": 0.0,
+    "classifier_dropout": 0.3,
     "scale_embedding": False,
     "use_cache": False,
     "num_labels": tgt_vocab_size,
@@ -123,7 +112,7 @@ trainer = Trainer(
     train_dataset=train_data,
     data_collator=collate_fn,
     eval_dataset=validation_data,
-    args=training_args
+    args=training_args,
 )
 result = trainer.train()
 
@@ -131,6 +120,10 @@ torch.save(
     facies_transformer.state_dict(),
     f=f"{model_directory}/facies-transformer/facies_transformer_state_dict.pt",
 )
+# Write the model directory to a text file called current_model.txt
+with open("current_model.txt", "w") as f:
+    f.write(model_directory)
+
 # decoded_labels = torch.empty(0, dtype=torch.long).to(DEVICE)
 # for i, batch in enumerate(test_loader):
 #     input_ids = batch["input_ids"].to(DEVICE)

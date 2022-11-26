@@ -62,9 +62,11 @@ class WellsDataset(Dataset):
         download_data_locally=True,
         path="data",
         label_columns=["FORCE_2020_LITHOFACIES_LITHOLOGY"],
+        categorical_features_columns=["FORMATION", "GROUP"],
         feature_columns=WIRELINE_LOGS,
         scaler=None,
         output_len=None,
+        categories_label_encoders={},
     ):
         """
         Dataset objects for training datasets and test datasets
@@ -85,12 +87,14 @@ class WellsDataset(Dataset):
         self.path = f"{path}/{dataset_type}.csv"
         self.url = urls[self.dataset_type]
         self.data_df = self.download_data()
+        self.categorical_features_columns = categorical_features_columns
         self.feature_columns = feature_columns
         self.target = label_columns
         self.model_type = model_type
         self.sequence_len = sequence_len
         self.scaler = scaler
         self.output_len = output_len
+        self.categories_label_encoders = categories_label_encoders
         # Define special symbols and indices
         self.PAD_IDX = 0
         self.special_symbols = [self.PAD_IDX]
@@ -100,25 +104,35 @@ class WellsDataset(Dataset):
 
         self.wells = list(self.data_df["WELL"].unique())
         self.data = (
-            self.data_df[["WELL"] + ["DEPTH_MD"] + label_columns + feature_columns]
+            self.data_df[
+                ["WELL"]
+                + ["DEPTH_MD"]
+                + label_columns
+                + feature_columns
+                + categorical_features_columns
+            ]
             .fillna(method="ffill")
             .fillna(method="bfill")
         )
         self.well_indexes = pd.DataFrame(
             self.data["WELL"].apply(lambda x: self.wells.index(x)), columns=["WELL"]
         )
+        self.X_cat = self.prepare_X_categorical()
         self.X = self.prepare_X()
+        self.X = pd.concat([self.X, self.X_cat], axis=1)
+        self.categorical_columns_indexes = [
+            self.X.columns.get_loc(c) for c in self.categorical_features_columns
+        ]
         self.y = self.prepare_y()
-
+        self.X, self.y = self.separate_by_well()
         if self.model_type == "seq2seq":
-            self.X, self.y = self.separate_by_well()
             (
                 self.train_len,
                 self.input_len,
                 self.channel_len,
                 self.train_dataset,
                 self.train_label,
-            ) = self.prepare_sequences_to_sequences()
+            ) = self.prepare_sequences_to_sequences()            
 
     def __getitem__(self, index):
         return (self.train_dataset[index], self.train_label[index])
@@ -148,6 +162,40 @@ class WellsDataset(Dataset):
         scaled_X = self.scaler.transform(X)
         self.df_position = self.data[["WELL"] + ["DEPTH_MD"]]
         X_df = pd.DataFrame(scaled_X, columns=X.columns, index=X.index)
+        return X_df
+
+    def seq_to_label_dataset(self):
+        """
+        Prepare the dataset for the sequence to label model. The dataset is a list of tuples (sequence, label) where the sequences have a length of sequence_len and the label is has the same index of the first element of the sequence. Incomplete sequences are padded with zeros.
+        """
+        X = self.X
+        y = self.y
+        dataset = []
+        for well in self.wells:
+            well_X = X[well]
+            well_y = y[well]
+            well_X = torch.tensor(well_X, dtype=torch.float)
+            well_y = torch.tensor(well_y, dtype=torch.long)
+            for i in range(len(well_X) - self.sequence_len):
+                dataset.append((well_X[i : i + self.sequence_len], well_y[i]))
+        return dataset
+
+
+    def prepare_X_categorical(self):
+        X_df = pd.DataFrame(
+            data=self.data[self.categorical_features_columns],
+            columns=self.categorical_features_columns,
+            index=self.data[self.categorical_features_columns].index,
+        )
+        unknown_class = "unknown"
+        for category in self.categorical_features_columns:
+            if category not in self.categories_label_encoders:
+                self.categories_label_encoders[category] = preprocessing.LabelEncoder()
+                self.categories_label_encoders[category].fit(list(X_df[category].unique()) + [unknown_class])
+
+            label_encoder = self.categories_label_encoders[category]
+            label_encoder_dictionary = dict(zip(label_encoder.classes_, label_encoder.transform(label_encoder.classes_)))
+            X_df[category] = X_df[category].apply(lambda x: label_encoder_dictionary.get(x, label_encoder_dictionary[unknown_class]))
         return X_df
 
     def prepare_y(self):
@@ -262,6 +310,17 @@ def main():
         label_columns=LABEL_COLUMN_HEADER,
         sequence_len=5,
     )
+    test_dataset = WellsDataset(
+        dataset_type="test",
+        model_type="seq2seq",
+        feature_columns=WIRELINE_LOGS_HEADER,
+        sequence_len=5,
+        label_columns=LABEL_COLUMN_HEADER,
+        scaler=seq2seq.scaler,
+        output_len=seq2seq.output_len,
+        categories_label_encoders=seq2seq.categories_label_encoders,
+    )
+
     print(seq2seq.train_dataset.shape, seq2seq.train_label.shape)
 
 

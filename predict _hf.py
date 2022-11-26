@@ -15,9 +15,13 @@ import numpy as np
 import utils
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-run_path = "/home/joao/code/tcc/seq2seq/saved_models/2022-11-23_02-14-14"
-config_path = "/home/joao/code/tcc/seq2seq/saved_models/2022-11-23_02-14-14/facies-transformer-config"
-model_path = "/home/joao/code/tcc/seq2seq/saved_models/2022-11-23_02-14-14/facies-transformer/facies_transformer_state_dict.pt"
+
+# read string from current_model.txt
+with open("current_model.txt", "r") as f:
+    current_model = f.read()
+run_path = f"/home/joao/code/tcc/seq2seq/{current_model}"
+config_path = f"/home/joao/code/tcc/seq2seq/{current_model}/facies-transformer-config"
+model_path = f"/home/joao/code/tcc/seq2seq/{current_model}/facies-transformer/facies_transformer_state_dict.pt"
 
 
 def collate_fn(batch):
@@ -40,7 +44,8 @@ facies_transformer = FaciesForConditionalGeneration(facies_transformer_config).t
 facies_transformer.load_state_dict(torch.load(model_path))
 BATCH_SIZE = 128
 TRAINING_RATIO = 0.90
-WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB", "SP"]
+WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB"]
+CATEGORICAL_COLUMNS = ["FORMATION", "GROUP"]
 LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
 train_dataset = WellsDataset(
     dataset_type="train",
@@ -57,6 +62,7 @@ test_dataset = WellsDataset(
     label_columns=LABEL_COLUMN_HEADER,
     scaler=train_dataset.scaler,
     output_len=train_dataset.output_len,
+    categories_label_encoders=train_dataset.categories_label_encoders,
 )
 
 
@@ -75,7 +81,7 @@ for i, batch in enumerate(test_loader):
         pad_token_id=test_dataset.PAD_IDX,
         eos_token_id=test_dataset.PAD_IDX,
         num_return_sequences=1,
-        num_beams=7,
+        num_beams=4,
         max_new_tokens=facies_transformer_config.sequence_len + 1,
     )
 
