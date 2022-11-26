@@ -1,4 +1,4 @@
-from transformers import TrainingArguments, Trainer
+from transformers import TrainingArguments, Trainer, Seq2SeqTrainingArguments, Seq2SeqTrainer
 from hf_sequence_to_sequence.model import FaciesForConditionalGeneration
 from hf_sequence_to_sequence.configuration import FaciesConfig
 import torchmetrics
@@ -31,6 +31,8 @@ train_dataset = WellsDataset(
     categorical_features_columns=CATEGORICAL_COLUMNS,
     label_columns=LABEL_COLUMN_HEADER,
 )
+
+
 
 DATA_LEN = train_dataset.train_len
 d_input = train_dataset.input_len
@@ -99,20 +101,50 @@ facies_transformer_config = FaciesConfig.from_pretrained(
 )
 
 facies_transformer = FaciesForConditionalGeneration(facies_transformer_config)
+def compute_metrics_fn(eval_preds):
+    metrics = dict()
+    accuracy_metric = load_metric("accuracy")
+    preds = eval_preds.predictions[:, 1:-1]
+    preds = preds.flatten()
+    labels = eval_preds.label_ids[:,:-2]
+    labels = labels.flatten()
+    preds = preds[labels != 0]
+    labels = labels[labels != 0]
 
-training_args = TrainingArguments(
+    metrics.update(accuracy_metric.compute(predictions=preds, references=labels))
+
+    return metrics
+
+
+test_dataset = WellsDataset(
+    dataset_type="test",
+    sequence_len=facies_transformer_config.sequence_len,
+    model_type="seq2seq",
+    feature_columns=WIRELINE_LOGS_HEADER,
+    label_columns=LABEL_COLUMN_HEADER,
+    scaler=train_dataset.scaler,
+    output_len=train_dataset.output_len,
+    categories_label_encoders=train_dataset.categories_label_encoders,
+)
+training_args = Seq2SeqTrainingArguments(
     output_dir=f"{model_directory}/facies-transformer",
     per_device_train_batch_size=BATCH_SIZE,
     per_device_eval_batch_size=BATCH_SIZE,
     evaluation_strategy="epoch",
     num_train_epochs=10,
+    generation_max_length=SEQUENCE_LEN+2,
+    generation_num_beams=4,
+    predict_with_generate=True
 )
-trainer = Trainer(
+
+
+trainer = Seq2SeqTrainer(
     model=facies_transformer,
     train_dataset=train_data,
     data_collator=collate_fn,
-    eval_dataset=validation_data,
+    eval_dataset=test_dataset,
     args=training_args,
+    compute_metrics=compute_metrics_fn,
 )
 result = trainer.train()
 

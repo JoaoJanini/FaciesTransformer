@@ -1,4 +1,4 @@
-from transformers import TrainingArguments, Trainer, logging
+from transformers import TrainingArguments, Trainer, logging, Seq2SeqTrainingArguments, Seq2SeqTrainer
 from hf_sequence_to_sequence.model import FaciesForConditionalGeneration
 from hf_sequence_to_sequence.configuration import FaciesConfig
 import torchmetrics
@@ -24,7 +24,7 @@ import numpy as np
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-BATCH_SIZE = 256
+BATCH_SIZE = 64
 SEQUENCE_LEN = 15
 TRAINING_RATIO = 0.95
 WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB", "SP"]
@@ -37,6 +37,18 @@ train_dataset = WellsDataset(
     model_type="seq2seq",
     feature_columns=WIRELINE_LOGS_HEADER,
     label_columns=LABEL_COLUMN_HEADER,
+)
+test_dataset = WellsDataset(
+    dataset_type="test",
+    sequence_len=SEQUENCE_LEN,
+    model_type="seq2seq",
+    feature_columns=WIRELINE_LOGS_HEADER,
+    label_columns=LABEL_COLUMN_HEADER,
+    scaler=train_dataset.scaler,
+    output_len=train_dataset.output_len,
+)
+test_loader = DataLoader(
+    dataset=test_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn
 )
 
 DATA_LEN = train_dataset.train_len
@@ -95,7 +107,7 @@ facies_transformer_config = FaciesConfig.from_pretrained(
 def ray_hp_space(trial):
     return {
         "learning_rate": tune.loguniform(1e-6, 1e-4),
-        "per_device_train_batch_size": tune.choice([16, 32, 64, 128]),
+        "per_device_train_batch_size": tune.choice([16]),
         "weight_decay": tune.uniform(0.0, 0.3),
         "num_train_epochs": tune.choice([2]),
     }
@@ -103,14 +115,11 @@ def ray_hp_space(trial):
 
 def compute_metrics_fn(eval_preds):
     metrics = dict()
-
     accuracy_metric = load_metric("accuracy")
-    precision_metric = load_metric("precision")
-    recall_metric = load_metric("recall")
-    f1_metric = load_metric("f1")
-    preds = eval_preds.predictions.argmax(axis=-1)
+    preds = eval_preds.predictions[:, 1:-1]
     preds = preds.flatten()
-    labels = eval_preds.label_ids.flatten()
+    labels = eval_preds.label_ids[:,:-2]
+    labels = labels.flatten()
     preds = preds[labels != 0]
     labels = labels[labels != 0]
 
@@ -124,22 +133,29 @@ def model_init(trial):
     return FaciesForConditionalGeneration(facies_transformer_config)
 
 
-training_args = TrainingArguments(
+training_args = Seq2SeqTrainingArguments(
     output_dir=f"{model_directory}/facies-transformer",
-    evaluation_strategy="steps",
-    eval_steps=500,
+    per_device_train_batch_size=BATCH_SIZE,
+    per_device_eval_batch_size=BATCH_SIZE,
     disable_tqdm=True,
+    evaluation_strategy="steps",
+    num_train_epochs=10,
+    eval_steps=500,
+    generation_max_length=SEQUENCE_LEN+2,
+    generation_num_beams=4,
+    predict_with_generate=True
 )
 
-trainer = Trainer(
+trainer = Seq2SeqTrainer(
     model=None,
     train_dataset=train_data,
-    eval_dataset=validation_data,
     data_collator=collate_fn,
+    eval_dataset=validation_data,
     args=training_args,
-    model_init=model_init,
-    compute_metrics=compute_metrics_fn,
+    model_init = model_init,
+    compute_metrics=compute_metrics_fn
 )
+
 best_model = trainer.hyperparameter_search(
     direction="maximize",
     backend="ray",
@@ -148,7 +164,6 @@ best_model = trainer.hyperparameter_search(
     hp_space=ray_hp_space,
     local_dir=f"{model_directory}/ray_results",
 )
-
 
 test_dataset = WellsDataset(
     dataset_type="test",
