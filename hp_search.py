@@ -1,4 +1,10 @@
-from transformers import TrainingArguments, Trainer, logging, Seq2SeqTrainingArguments, Seq2SeqTrainer
+from transformers import (
+    TrainingArguments,
+    Trainer,
+    logging,
+    Seq2SeqTrainingArguments,
+    Seq2SeqTrainer,
+)
 from hf_sequence_to_sequence.model import FaciesForConditionalGeneration
 from hf_sequence_to_sequence.configuration import FaciesConfig
 import torchmetrics
@@ -18,6 +24,7 @@ from utils import collate_fn
 from ray.tune.schedulers import PopulationBasedTraining
 from ray.tune.search.hyperopt import HyperOptSearch
 from ray import tune
+
 # define function to compute metrics
 import numpy as np
 
@@ -62,6 +69,29 @@ train_data, validation_data = random_split(
     train_dataset, lengths=[TRAIN_DATA_LEN, DATA_LEN - TRAIN_DATA_LEN]
 )
 
+# function to collate data samples into batch tesors
+def ray_hp_space(trial):
+    return {
+        "learning_rate": tune.loguniform(1e-6, 1e-4),
+        "per_device_train_batch_size": tune.choice([16]),
+        "weight_decay": tune.uniform(0.0, 0.3),
+        "num_train_epochs": tune.choice([2]),
+        "dropout": tune.choice([0.3, 0.1, 0.2, 0.0, 0.4])
+    }
+
+
+def compute_metrics_fn(eval_preds):
+    metrics = dict()
+    accuracy_metric = load_metric("accuracy")
+    preds = eval_preds.predictions[:, 1:-1]
+    preds = preds.flatten()
+    labels = eval_preds.label_ids[:, :-2]
+    labels = labels.flatten()
+    preds = preds[labels != 0]
+    labels = labels[labels != 0]
+
+    metrics.update(accuracy_metric.compute(predictions=preds, references=labels))
+    return metrics
 
 facies_config = {
     "vocab_size": tgt_vocab_size,
@@ -94,6 +124,7 @@ facies_config = {
     "decoder_start_token_id": train_dataset.PAD_IDX,
     "forced_eos_token_id": train_dataset.PAD_IDX,
 }
+
 facies_transformer_config = FaciesConfig(**facies_config)
 facies_transformer_config.save_pretrained(
     f"{model_directory}/facies-transformer-config"
@@ -102,35 +133,14 @@ facies_transformer_config = FaciesConfig.from_pretrained(
     f"{model_directory}/facies-transformer-config"
 )
 
-
-# function to collate data samples into batch tesors
-def ray_hp_space(trial):
-    return {
-        "learning_rate": tune.loguniform(1e-6, 1e-4),
-        "per_device_train_batch_size": tune.choice([16]),
-        "weight_decay": tune.uniform(0.0, 0.3),
-        "num_train_epochs": tune.choice([2]),
-    }
-
-
-def compute_metrics_fn(eval_preds):
-    metrics = dict()
-    accuracy_metric = load_metric("accuracy")
-    preds = eval_preds.predictions[:, 1:-1]
-    preds = preds.flatten()
-    labels = eval_preds.label_ids[:,:-2]
-    labels = labels.flatten()
-    preds = preds[labels != 0]
-    labels = labels[labels != 0]
-
-    metrics.update(accuracy_metric.compute(predictions=preds, references=labels))
-
-    return metrics
-
-
 def model_init(trial):
+    model_config = facies_transformer_config
+    if trial is not None:
+        model_config.update({'dropout': trial['dropout']})
+    print("model_init() called. updated config is")
+    print(model_config)
 
-    return FaciesForConditionalGeneration(facies_transformer_config)
+    return FaciesForConditionalGeneration(model_config)
 
 
 training_args = Seq2SeqTrainingArguments(
@@ -141,9 +151,9 @@ training_args = Seq2SeqTrainingArguments(
     evaluation_strategy="steps",
     num_train_epochs=10,
     eval_steps=500,
-    generation_max_length=SEQUENCE_LEN+2,
+    generation_max_length=SEQUENCE_LEN + 2,
     generation_num_beams=4,
-    predict_with_generate=True
+    predict_with_generate=True,
 )
 
 trainer = Seq2SeqTrainer(
@@ -152,8 +162,8 @@ trainer = Seq2SeqTrainer(
     data_collator=collate_fn,
     eval_dataset=validation_data,
     args=training_args,
-    model_init = model_init,
-    compute_metrics=compute_metrics_fn
+    model_init=model_init,
+    compute_metrics=compute_metrics_fn,
 )
 
 best_model = trainer.hyperparameter_search(
@@ -174,7 +184,7 @@ test_dataset = WellsDataset(
     scaler=train_dataset.scaler,
     output_len=train_dataset.output_len,
 )
-test_loader = DataLoader(
+test_loader = DataLoadear(
     dataset=test_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn
 )
 

@@ -1,4 +1,9 @@
-from transformers import TrainingArguments, Trainer, Seq2SeqTrainingArguments, Seq2SeqTrainer
+from transformers import (
+    TrainingArguments,
+    Trainer,
+    Seq2SeqTrainingArguments,
+    Seq2SeqTrainer,
+)
 from hf_sequence_to_sequence.model import FaciesForConditionalGeneration
 from hf_sequence_to_sequence.configuration import FaciesConfig
 import torchmetrics
@@ -31,7 +36,6 @@ train_dataset = WellsDataset(
     categorical_features_columns=CATEGORICAL_COLUMNS,
     label_columns=LABEL_COLUMN_HEADER,
 )
-
 
 
 DATA_LEN = train_dataset.train_len
@@ -101,12 +105,14 @@ facies_transformer_config = FaciesConfig.from_pretrained(
 )
 
 facies_transformer = FaciesForConditionalGeneration(facies_transformer_config)
+
+
 def compute_metrics_fn(eval_preds):
     metrics = dict()
     accuracy_metric = load_metric("accuracy")
     preds = eval_preds.predictions[:, 1:-1]
     preds = preds.flatten()
-    labels = eval_preds.label_ids[:,:-2]
+    labels = eval_preds.label_ids[:, :-2]
     labels = labels.flatten()
     preds = preds[labels != 0]
     labels = labels[labels != 0]
@@ -132,9 +138,9 @@ training_args = Seq2SeqTrainingArguments(
     per_device_eval_batch_size=BATCH_SIZE,
     evaluation_strategy="epoch",
     num_train_epochs=10,
-    generation_max_length=SEQUENCE_LEN+2,
+    generation_max_length=SEQUENCE_LEN + 2,
     generation_num_beams=4,
-    predict_with_generate=True
+    predict_with_generate=True,
 )
 
 
@@ -155,6 +161,7 @@ torch.save(
 # Write the model directory to a text file called current_model.txt
 with open("current_model.txt", "w") as f:
     f.write(model_directory)
+
 
 # decoded_labels = torch.empty(0, dtype=torch.long).to(DEVICE)
 # for i, batch in enumerate(test_loader):

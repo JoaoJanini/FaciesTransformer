@@ -132,7 +132,7 @@ class WellsDataset(Dataset):
                 self.channel_len,
                 self.train_dataset,
                 self.train_label,
-            ) = self.prepare_sequences_to_sequences()            
+            ) = self.prepare_sequences_to_sequences()
 
     def __getitem__(self, index):
         return (self.train_dataset[index], self.train_label[index])
@@ -180,7 +180,6 @@ class WellsDataset(Dataset):
                 dataset.append((well_X[i : i + self.sequence_len], well_y[i]))
         return dataset
 
-
     def prepare_X_categorical(self):
         X_df = pd.DataFrame(
             data=self.data[self.categorical_features_columns],
@@ -191,11 +190,22 @@ class WellsDataset(Dataset):
         for category in self.categorical_features_columns:
             if category not in self.categories_label_encoders:
                 self.categories_label_encoders[category] = preprocessing.LabelEncoder()
-                self.categories_label_encoders[category].fit(list(X_df[category].unique()) + [unknown_class])
+                self.categories_label_encoders[category].fit(
+                    list(X_df[category].unique()) + [unknown_class]
+                )
 
             label_encoder = self.categories_label_encoders[category]
-            label_encoder_dictionary = dict(zip(label_encoder.classes_, label_encoder.transform(label_encoder.classes_)))
-            X_df[category] = X_df[category].apply(lambda x: label_encoder_dictionary.get(x, label_encoder_dictionary[unknown_class]))
+            label_encoder_dictionary = dict(
+                zip(
+                    label_encoder.classes_,
+                    label_encoder.transform(label_encoder.classes_),
+                )
+            )
+            X_df[category] = X_df[category].apply(
+                lambda x: label_encoder_dictionary.get(
+                    x, label_encoder_dictionary[unknown_class]
+                )
+            )
         return X_df
 
     def prepare_y(self):
