@@ -42,11 +42,13 @@ facies_transformer = FaciesForConditionalGeneration(facies_transformer_config).t
     DEVICE
 )
 facies_transformer.load_state_dict(torch.load(model_path))
+
 BATCH_SIZE = 128
-TRAINING_RATIO = 0.90
-WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB"]
-CATEGORICAL_COLUMNS = ["FORMATION", "GROUP"]
+SEQUENCE_LEN = 15
+TRAINING_RATIO = 0.95
+WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB", "SP"]
 LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
+CATEGORICAL_COLUMNS = ["FORMATION", "GROUP"]
 train_dataset = WellsDataset(
     dataset_type="train",
     sequence_len=facies_transformer_config.sequence_len,
@@ -81,7 +83,7 @@ for i, batch in enumerate(test_loader):
         pad_token_id=test_dataset.PAD_IDX,
         eos_token_id=test_dataset.PAD_IDX,
         num_return_sequences=1,
-        num_beams=4,
+        num_beams=7,
         max_new_tokens=facies_transformer_config.sequence_len + 1,
     )
 

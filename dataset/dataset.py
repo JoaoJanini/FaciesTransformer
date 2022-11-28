@@ -1,11 +1,10 @@
-from re import I
 import pandas as pd
-import torch
 from torch.utils.data import Dataset
 import torch
 from sklearn import preprocessing
 from urllib.request import urlopen
 import numpy as np
+import math
 
 WIRELINE_LOGS = [
     "WELL",
@@ -123,16 +122,19 @@ class WellsDataset(Dataset):
         self.categorical_columns_indexes = [
             self.X.columns.get_loc(c) for c in self.categorical_features_columns
         ]
+
+        self.n_features = self.X.shape[1]
         self.y = self.prepare_y()
         self.X, self.y = self.separate_by_well()
         if self.model_type == "seq2seq":
-            (
-                self.train_len,
-                self.input_len,
-                self.channel_len,
-                self.train_dataset,
-                self.train_label,
-            ) = self.prepare_sequences_to_sequences()
+            self.train_dataset, self.train_label = self.prepare_sequences_to_sequences()
+
+        else:
+            self.train_dataset, self.train_label = self.prepare_sequences_to_label()
+
+        self.train_len = self.train_dataset.shape[0]
+        self.channel_len = self.train_dataset.shape[-2]
+        self.input_len = self.train_dataset.shape[-1]
 
     def __getitem__(self, index):
         return (self.train_dataset[index], self.train_label[index])
@@ -164,21 +166,28 @@ class WellsDataset(Dataset):
         X_df = pd.DataFrame(scaled_X, columns=X.columns, index=X.index)
         return X_df
 
-    def seq_to_label_dataset(self):
-        """
-        Prepare the dataset for the sequence to label model. The dataset is a list of tuples (sequence, label) where the sequences have a length of sequence_len and the label is has the same index of the first element of the sequence. Incomplete sequences are padded with zeros.
-        """
-        X = self.X
-        y = self.y
-        dataset = []
-        for well in self.wells:
-            well_X = X[well]
-            well_y = y[well]
-            well_X = torch.tensor(well_X, dtype=torch.float)
-            well_y = torch.tensor(well_y, dtype=torch.long)
-            for i in range(len(well_X) - self.sequence_len):
-                dataset.append((well_X[i : i + self.sequence_len], well_y[i]))
-        return dataset
+    def prepare_sequences_to_label(self):
+        train_dataset = []
+        # assert sequence_len % 2 == 1, "sequence_len must be odd"
+        assert self.sequence_len % 2 == 1
+        obs_len = int((self.sequence_len - 1)/2)
+        seq_pad = torch.Tensor().new_full(size = (obs_len, int(self.n_features)), fill_value = -math.inf)
+        for well in self.X:
+            well = torch.cat(
+                    (   seq_pad, 
+                        torch.as_tensor(well).float(), 
+                        seq_pad
+                    )
+                , dim=0)
+            for i in range(well.shape[0]):
+                    if (i >= obs_len) and ((i + obs_len) < well.shape[0]):
+                        x1 = well[i - obs_len : i + obs_len+1, :]
+                        train_dataset.append(x1)
+                    else:
+                        continue
+        train_dataset = torch.stack(train_dataset, dim=0).permute(0, 1, 2)
+        train_label = torch.cat(self.y)
+        return train_dataset, train_label
 
     def prepare_X_categorical(self):
         X_df = pd.DataFrame(
@@ -237,7 +246,7 @@ class WellsDataset(Dataset):
             yi = self.y.loc[well_rows_index].to_numpy()
 
             training_data.append(xi)
-            training_labels.append(yi)
+            training_labels.append(torch.as_tensor(yi))   
         return training_data, training_labels
 
     def prepare_sequences_to_sequences(self):
@@ -248,7 +257,7 @@ class WellsDataset(Dataset):
                 torch.split(torch.as_tensor(x1).float(), self.sequence_len)
             )
             train_dataset_label = list(
-                torch.split(torch.as_tensor(y1).float(), self.sequence_len)
+                torch.split(y1.float(), self.sequence_len)
             )
 
             if len(train_dataset_well[-1]) < self.sequence_len:
@@ -268,10 +277,8 @@ class WellsDataset(Dataset):
 
         train_dataset = torch.stack(train_dataset, dim=0).permute(0, 1, 2)
         train_label = torch.stack(train_label, dim=0).permute(0, 1, 2).long().squeeze()
-        train_len = train_dataset.shape[0]
-        channel_len = train_dataset[0].shape[-1]
-        input_len = train_dataset[0].shape[-2]
-        return train_len, input_len, channel_len, train_dataset, train_label
+
+        return train_dataset, train_label
 
     def get_lithology_numbers(self):
         lithology_numbers = {
@@ -314,25 +321,16 @@ class WellsDataset(Dataset):
 def main():
     WIRELINE_LOGS_HEADER = ["DEPTH_MD", "GR", "NPHI"]
     LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
-    seq2seq = WellsDataset(
-        model_type="seq2seq",
-        feature_columns=WIRELINE_LOGS_HEADER,
-        label_columns=LABEL_COLUMN_HEADER,
-        sequence_len=5,
-    )
+
     test_dataset = WellsDataset(
         dataset_type="test",
-        model_type="seq2seq",
+        model_type="seq2label",
         feature_columns=WIRELINE_LOGS_HEADER,
         sequence_len=5,
         label_columns=LABEL_COLUMN_HEADER,
-        scaler=seq2seq.scaler,
-        output_len=seq2seq.output_len,
-        categories_label_encoders=seq2seq.categories_label_encoders,
     )
 
-    print(seq2seq.train_dataset.shape, seq2seq.train_label.shape)
-
+    print(test_dataset.train_dataset.shape, test_dataset.train_label.shape)
 
 if __name__ == "__main__":
     main()

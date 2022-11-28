@@ -4,7 +4,7 @@ from transformers import (
     Seq2SeqTrainingArguments,
     Seq2SeqTrainer,
 )
-from hf_sequence_to_sequence.model import FaciesForConditionalGeneration
+from hf_sequence_to_sequence.model import FaciesForConditionalGeneration, FaciesForClassification
 from hf_sequence_to_sequence.configuration import FaciesConfig
 import torchmetrics
 import math
@@ -21,16 +21,19 @@ from datasets import load_dataset, load_metric
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-BATCH_SIZE = 16
-SEQUENCE_LEN = 15
-TRAINING_RATIO = 0.95
-WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB", "SP"]
+BATCH_SIZE = 64
+SEQUENCE_LEN = 21
+TRAINING_RATIO = 0.90
+WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB"]
+CATEGORICAL_COLUMNS = ["FORMATION", "GROUP"]
 LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
+
 train_dataset = WellsDataset(
     dataset_type="train",
     sequence_len=SEQUENCE_LEN,
-    model_type="seq2seq",
+    model_type="seq2label",
     feature_columns=WIRELINE_LOGS_HEADER,
+    categorical_features_columns=CATEGORICAL_COLUMNS,
     label_columns=LABEL_COLUMN_HEADER,
 )
 
@@ -49,6 +52,7 @@ train_data, validation_data = random_split(
 # function to collate data samples into batch tesors
 def collate_fn(batch):
     src_batch, tgt_batch = [], []
+
     for src_sample, tgt_sample in batch:
         tgt_batch.append(tgt_sample)
         src_batch.append(src_sample)
@@ -58,37 +62,39 @@ def collate_fn(batch):
 
     model_input = {"input_ids": src_batch, "labels": tgt_batch}
     return model_input
+
+
 facies_config = {
     "vocab_size": tgt_vocab_size,
     "max_position_embeddings": 1024,
-    "encoder_layers": 6,
+    "encoder_layers": 5,
     "encoder_ffn_dim": 1024,
     "encoder_attention_heads": 8,
-    "decoder_layers": 4,
-    "decoder_ffn_dim": 1024,
+    "decoder_layers": 5,
+    "decoder_ffn_dim": 512,
+    "cat_features_indexes": train_dataset.categorical_columns_indexes,
     "decoder_attention_heads": 8,
-    "encoder_layerdrop": 0.0,
-    "decoder_layerdrop": 0.0,
+    "encoder_layerdrop": 0.3,
+    "decoder_layerdrop": 0.1,
     "activation_function": "relu",
     "d_model": 512,
     "n_input_features": d_input,
     "n_output_features": d_output,
     "sequence_len": SEQUENCE_LEN,
     "dropout": 0.3,
-    "attention_dropout": 0.0,
-    "activation_dropout": 0.0,
+    "attention_dropout": 0.3,
+    "activation_dropout": 0.3,
     "init_std": 0.02,
-    "classifier_dropout": 0.0,
+    "classifier_dropout": 0.3,
     "scale_embedding": False,
     "use_cache": False,
     "num_labels": tgt_vocab_size,
     "pad_token_id": train_dataset.PAD_IDX,
     "bos_token_id": train_dataset.PAD_IDX,
     "eos_token_id": train_dataset.PAD_IDX,
-    "is_encoder_decoder": True,
+    "is_encoder_decoder": False,
     "decoder_start_token_id": train_dataset.PAD_IDX,
     "forced_eos_token_id": train_dataset.PAD_IDX,
-    "return_dict": False,
 }
 model_directory = f"saved_models/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 facies_transformer_config = FaciesConfig(**facies_config)
@@ -99,7 +105,7 @@ facies_transformer_config = FaciesConfig.from_pretrained(
     f"{model_directory}/facies-transformer-config"
 )
 
-facies_transformer = FaciesForConditionalGeneration(facies_transformer_config)
+facies_transformer = FaciesForClassification(facies_transformer_config)
 
 
 def compute_metrics_fn(eval_preds):
@@ -127,21 +133,15 @@ test_dataset = WellsDataset(
     output_len=train_dataset.output_len,
     categories_label_encoders=train_dataset.categories_label_encoders,
 )
-
-training_args = Seq2SeqTrainingArguments(
+training_args = TrainingArguments(
     output_dir=f"{model_directory}/facies-transformer",
     per_device_train_batch_size=BATCH_SIZE,
-    per_device_eval_batch_size=128,
-    evaluation_strategy="steps",
-    num_train_epochs=2,
-    generation_max_length=SEQUENCE_LEN + 2,
-    generation_num_beams=4,
-    predict_with_generate=True,
-    learning_rate=3.40752e-05,
-    weight_decay=0.0624145
+    per_device_eval_batch_size=BATCH_SIZE,
+    evaluation_strategy="epoch",
+    num_train_epochs=10,
 )
 
-trainer = Seq2SeqTrainer(
+trainer = Trainer(
     model=facies_transformer,
     train_dataset=train_data,
     data_collator=collate_fn,
@@ -149,7 +149,8 @@ trainer = Seq2SeqTrainer(
     args=training_args,
     compute_metrics=compute_metrics_fn,
 )
-best_model = trainer.train()
+result = trainer.train()
+
 torch.save(
     facies_transformer.state_dict(),
     f=f"{model_directory}/facies-transformer/facies_transformer_state_dict.pt",

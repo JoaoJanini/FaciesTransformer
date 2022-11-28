@@ -1,11 +1,12 @@
 torch>=1.1
 torchvision
 numpy
+seaborn
 tqdm
 tensorboard>=1.14
 pandas
 requests
-sklearn
+scikit-learn
 torchmetrics
 transformers
 accelerate

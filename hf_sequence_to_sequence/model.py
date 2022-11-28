@@ -21,6 +21,7 @@ from transformers.modeling_outputs import (
     Seq2SeqModelOutput,
     Seq2SeqLMOutput,
     BaseModelOutput,
+    SequenceClassifierOutput
 )
 
 
@@ -218,9 +219,6 @@ class FaciesModelEncoder(PreTrainedModel):
 
         # 输出
         output_encoder = self.output_linear(encoding)
-        output_encoder = output_encoder.reshape(
-            output_encoder.shape[0], 1, output_encoder.shape[1]
-        )
 
         return BaseModelOutput(last_hidden_state=output_encoder)
 
@@ -412,6 +410,7 @@ class FaciesModel(PreTrainedModel):
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
+
         # If the user passed a tuple for encoder_outputs, we wrap it in a BaseModelOutput when return_dict=True
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(last_hidden_state=encoder_outputs[0])
@@ -419,7 +418,9 @@ class FaciesModel(PreTrainedModel):
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
-            encoder_hidden_states=encoder_outputs[0],
+            encoder_hidden_states= encoder_outputs[0].reshape(
+            encoder_outputs[0].shape[0], 1, encoder_outputs[0].shape[1]
+            ),
             encoder_attention_mask=attention_mask,
             head_mask=decoder_head_mask,
             cross_attn_head_mask=cross_attn_head_mask,
@@ -560,15 +561,13 @@ class FaciesForConditionalGeneration(PreTrainedModel):
             labels, self.config.pad_token_id, self.config.decoder_start_token_id
         )
 
+
 class FaciesForClassification(PreTrainedModel):
     def __init__(self, config: FaciesConfig):
         super().__init__(config)
         self.config = config
         self.encoder = FaciesModelEncoder(config)
-        self.dense = nn.Linear(config.n_input_features, config.d_model)
-        self.dropout = nn.Dropout(config.dropout)
-        self.out_proj = nn.Linear(config.d_model, config.vocab_size)
-
+        self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
     def get_encoder(self):
         return self.model.get_encoder()
 
@@ -594,7 +593,7 @@ class FaciesForClassification(PreTrainedModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-    ) -> Union[Tuple, Seq2SeqLMOutput]:
+    ) -> Union[Tuple, SequenceClassifierOutput]:
         r"""
         labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
             Labels for computing the masked language modeling loss. Indices should either be in `[0, ...,
@@ -615,25 +614,9 @@ class FaciesForClassification(PreTrainedModel):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
-        hidden_states = outputs[0]
-        hidden_states = self.dropout(hidden_states)
-        hidden_states = self.dense(hidden_states)
-        hidden_states = torch.tanh(hidden_states)
-        hidden_states = self.dropout(hidden_states)
-        hidden_states = self.out_proj(hidden_states)
+        hidden_states = self.lm_head(encoder_outputs[0])
         lm_logits = hidden_states
+        loss_fct = CrossEntropyLoss()
+        loss = loss_fct(lm_logits.view(-1, self.config.vocab_size), labels.view(-1))
 
-        masked_lm_loss = None
-        if labels is not None:
-            loss_fct = CrossEntropyLoss()
-            masked_lm_loss = loss_fct(
-                lm_logits.view(-1, self.config.vocab_size), labels.view(-1)
-            )
-
-        if not return_dict:
-            output = (lm_logits,) + outputs[1:]
-            return (
-                ((masked_lm_loss,) + output) if masked_lm_loss is not None else output
-            )
-
-        return SequenceClassifierOutput(loss=masked_lm_loss, logits=lm_logits)
+        return SequenceClassifierOutput(loss=loss, logits=lm_logits)

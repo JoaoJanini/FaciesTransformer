@@ -40,8 +40,8 @@ original_lithology_numbers = {
     93000: 11,
 }
 # map lithology numbers to index using original_lithology_numbers for y_true_decoded and y_pred_decoded
-y_true = np.array( [*map(original_lithology_numbers.get, y_true_decoded)] )
-y_pred = np.array( [*map(original_lithology_numbers.get, y_pred_decoded)] )
+y_true = np.array([*map(original_lithology_numbers.get, y_true_decoded)])
+y_pred = np.array([*map(original_lithology_numbers.get, y_pred_decoded)])
 
 print(utils.score(y_true, y_pred))
 lithology_numbers = {

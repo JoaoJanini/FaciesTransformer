@@ -36,7 +36,7 @@ SEQUENCE_LEN = 15
 TRAINING_RATIO = 0.95
 WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB", "SP"]
 LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
-model_directory = f"saved_models/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+model_directory = f"tensorboard_runs/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
 train_dataset = WellsDataset(
     dataset_type="train",
@@ -75,8 +75,8 @@ def ray_hp_space(trial):
         "learning_rate": tune.loguniform(1e-6, 1e-4),
         "per_device_train_batch_size": tune.choice([16]),
         "weight_decay": tune.uniform(0.0, 0.3),
-        "num_train_epochs": tune.choice([2]),
-        "dropout": tune.choice([0.3, 0.1, 0.2, 0.0, 0.4])
+        "num_train_epochs": tune.choice([5]),
+        "dropout": tune.choice([0.3, 0.1, 0.2, 0.0, 0.4]),
     }
 
 
@@ -93,6 +93,7 @@ def compute_metrics_fn(eval_preds):
     metrics.update(accuracy_metric.compute(predictions=preds, references=labels))
     return metrics
 
+
 facies_config = {
     "vocab_size": tgt_vocab_size,
     "max_position_embeddings": 1024,
@@ -106,7 +107,7 @@ facies_config = {
     "decoder_layerdrop": 0.0,
     "activation_function": "relu",
     "d_model": 512,
-    "n_input_features": d_channel,
+    "n_input_features": d_input,
     "n_output_features": d_output,
     "sequence_len": SEQUENCE_LEN,
     "dropout": 0.2,
@@ -123,6 +124,7 @@ facies_config = {
     "is_encoder_decoder": True,
     "decoder_start_token_id": train_dataset.PAD_IDX,
     "forced_eos_token_id": train_dataset.PAD_IDX,
+    "return_dict": False,
 }
 
 facies_transformer_config = FaciesConfig(**facies_config)
@@ -133,10 +135,11 @@ facies_transformer_config = FaciesConfig.from_pretrained(
     f"{model_directory}/facies-transformer-config"
 )
 
+
 def model_init(trial):
     model_config = facies_transformer_config
     if trial is not None:
-        model_config.update({'dropout': trial['dropout']})
+        model_config.update({"dropout": trial["dropout"]})
     print("model_init() called. updated config is")
     print(model_config)
 
@@ -153,7 +156,8 @@ training_args = Seq2SeqTrainingArguments(
     eval_steps=500,
     generation_max_length=SEQUENCE_LEN + 2,
     generation_num_beams=4,
-    predict_with_generate=True,
+    predict_with_generate=True
+
 )
 
 trainer = Seq2SeqTrainer(
@@ -166,6 +170,8 @@ trainer = Seq2SeqTrainer(
     compute_metrics=compute_metrics_fn,
 )
 
+
+trainer.run()
 best_model = trainer.hyperparameter_search(
     direction="maximize",
     backend="ray",
@@ -189,6 +195,6 @@ test_loader = DataLoadear(
 )
 
 torch.save(
-    best_model.state_dict(),
-    f=f"{model_directory}/facies-transformer/facies_transformer_state_dict.pt",
+    trainer.model.state_dict(),
+    f=f"TESTE/facies-transformer/facies_transformer_state_dict.pt",
 )

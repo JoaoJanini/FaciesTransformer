@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as opt
+
 torch.set_printoptions(linewidth=120)
 from torch.utils.tensorboard import SummaryWriter
 
@@ -29,6 +30,7 @@ from datasets import load_dataset, load_metric
 from ray.tune.schedulers import PopulationBasedTraining
 from ray.tune.search.hyperopt import HyperOptSearch
 from ray import tune
+
 # define function to compue metrics
 import numpy as np
 
@@ -67,6 +69,7 @@ def collate_fn(batch):
 
     model_input = {"input_ids": src_batch.to(DEVICE), "labels": tgt_batch.to(DEVICE)}
     return model_input
+
 
 # function to collate data samples into batch tesors
 facies_config = {
