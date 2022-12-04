@@ -1,3 +1,13 @@
+data/raw/*
+data/predictions/*
+data/runs/*
+# the content of subfolders inside data/trained_models, except for the subfolders themselves
+data/trained_models/*/*
+saved_models/*
+old/**/*
+
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -6,8 +16,7 @@ tensorboard_runs
 tmp_trainer
 # C extensions
 *.so
-data/*
-saved_models/*
+
 # Distribution / packaging
 .Python
 build/

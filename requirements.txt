@@ -18,3 +18,4 @@ tensorboard-plugin-profile
 torchsummary
 hyperopt
 evaluate 
+xgboost

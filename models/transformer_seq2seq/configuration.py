@@ -1,6 +1,4 @@
 from transformers import PretrainedConfig
-from typing import List
-from transformers import PreTrainedModel
 
 
 class FaciesConfig(PretrainedConfig):

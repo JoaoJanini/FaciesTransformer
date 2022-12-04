@@ -5,23 +5,15 @@ from transformers import (
     Seq2SeqTrainingArguments,
     Seq2SeqTrainer,
 )
-from hf_sequence_to_sequence.model import FaciesForConditionalGeneration
-from hf_sequence_to_sequence.configuration import FaciesConfig
-import torchmetrics
-import math
-import time
-from torch import nn, optim
-from torch.optim import Adam
+from model import FaciesForConditionalGeneration
+from configuration import FaciesConfig
 import torch
 from torch.utils.data import DataLoader
 from dataset.dataset import WellsDataset
 from torch.utils.data import random_split
-from typing import List
 from datetime import datetime
-from transformers import Trainer, TrainingArguments
-from datasets import load_dataset, load_metric
-from utils import collate_fn
-from ray.tune.schedulers import PopulationBasedTraining
+from datasets import load_metric
+from models.utils import collate_fn
 from ray.tune.search.hyperopt import HyperOptSearch
 from ray import tune
 
@@ -34,7 +26,7 @@ DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 BATCH_SIZE = 64
 SEQUENCE_LEN = 15
 TRAINING_RATIO = 0.95
-WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB", "SP"]
+WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB"]
 LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
 model_directory = f"tensorboard_runs/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
@@ -156,8 +148,7 @@ training_args = Seq2SeqTrainingArguments(
     eval_steps=500,
     generation_max_length=SEQUENCE_LEN + 2,
     generation_num_beams=4,
-    predict_with_generate=True
-
+    predict_with_generate=True,
 )
 
 trainer = Seq2SeqTrainer(

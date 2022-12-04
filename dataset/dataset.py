@@ -35,21 +35,42 @@ WIRELINE_LOGS = [
     "ROPA",
     "RXO",
 ]
+def get_lithology_numbers():
+    lithology_numbers = {
+        0: 0,
+        30000: 1,
+        65030: 2,
+        65000: 3,
+        80000: 4,
+        74000: 5,
+        70000: 6,
+        70032: 7,
+        88000: 8,
+        86000: 9,
+        99000: 10,
+        90000: 11,
+        93000: 12,
+    }
+    return lithology_numbers
 
-original_lithology_numbers = {
-    30000: 0,
-    65030: 1,
-    65000: 2,
-    80000: 3,
-    74000: 4,
-    70000: 5,
-    70032: 6,
-    88000: 7,
-    86000: 8,
-    99000: 9,
-    90000: 10,
-    93000: 11,
-}
+def get_lithology_names():
+    # Define special symbols and indices
+    lithology_names = {
+        0: "<pad>",
+        30000: "Sandstone",
+        65030: "Sandstone/Shale",
+        65000: "Shale",
+        80000: "Marl",
+        74000: "Dolomite",
+        70000: "Limestone",
+        70032: "Chalk",
+        88000: "Halite",
+        86000: "Anhydrite",
+        99000: "Tuff",
+        90000: "Coal",
+        93000: "Basement",
+    }
+    return lithology_names
 
 
 class WellsDataset(Dataset):
@@ -59,7 +80,7 @@ class WellsDataset(Dataset):
         model_type="seq2seq",
         dataset_type="train",
         download_data_locally=True,
-        path="data",
+        path="data/raw",
         label_columns=["FORCE_2020_LITHOFACIES_LITHOLOGY"],
         categorical_features_columns=["FORMATION", "GROUP"],
         feature_columns=WIRELINE_LOGS,
@@ -102,39 +123,46 @@ class WellsDataset(Dataset):
             self.output_len = len(tuple(set(self.data_df[self.target[0]].to_numpy())))
 
         self.wells = list(self.data_df["WELL"].unique())
-        self.data = (
-            self.data_df[
-                ["WELL"]
-                + ["DEPTH_MD"]
-                + label_columns
-                + feature_columns
-                + categorical_features_columns
-            ]
-            .fillna(method="ffill")
-            .fillna(method="bfill")
-        )
+        self.data = self.data_df[
+            ["WELL"]
+            + ["DEPTH_MD"]
+            + label_columns
+            + feature_columns
+            + categorical_features_columns
+        ]
         self.well_indexes = pd.DataFrame(
             self.data["WELL"].apply(lambda x: self.wells.index(x)), columns=["WELL"]
         )
-        self.X_cat = self.prepare_X_categorical()
         self.X = self.prepare_X()
-        self.X = pd.concat([self.X, self.X_cat], axis=1)
-        self.categorical_columns_indexes = [
-            self.X.columns.get_loc(c) for c in self.categorical_features_columns
-        ]
+
+        if len(categorical_features_columns) > 0:
+            self.X_cat = self.prepare_X_categorical()
+            self.X = pd.concat([self.X, self.X_cat], axis=1)
+            self.categorical_columns_indexes = [
+                self.X.columns.get_loc(c) for c in self.categorical_features_columns
+            ]
 
         self.n_features = self.X.shape[1]
         self.y = self.prepare_y()
-        self.X, self.y = self.separate_by_well()
-        if self.model_type == "seq2seq":
+
+        if model_type == "label2label":
+            print("Label2Label")
+
+        elif self.model_type == "seq2seq":
+            self.X, self.y = self.separate_by_well()
+
             self.train_dataset, self.train_label = self.prepare_sequences_to_sequences()
+            self.train_len = self.train_dataset.shape[0]
+            self.channel_len = self.train_dataset.shape[-2]
+            self.input_len = self.train_dataset.shape[-1]
 
         else:
-            self.train_dataset, self.train_label = self.prepare_sequences_to_label()
+            self.X, self.y = self.separate_by_well()
 
-        self.train_len = self.train_dataset.shape[0]
-        self.channel_len = self.train_dataset.shape[-2]
-        self.input_len = self.train_dataset.shape[-1]
+            self.train_dataset, self.train_label = self.prepare_sequences_to_label()
+            self.train_len = self.train_dataset.shape[0]
+            self.channel_len = self.train_dataset.shape[-2]
+            self.input_len = self.train_dataset.shape[-1]
 
     def __getitem__(self, index):
         return (self.train_dataset[index], self.train_label[index])
@@ -159,32 +187,26 @@ class WellsDataset(Dataset):
 
     def prepare_X(self):
         X = self.data[self.feature_columns]
-        if self.scaler is None:
-            self.scaler = preprocessing.StandardScaler().fit(X)
-        scaled_X = self.scaler.transform(X)
         self.df_position = self.data[["WELL"] + ["DEPTH_MD"]]
-        X_df = pd.DataFrame(scaled_X, columns=X.columns, index=X.index)
+        X_df = pd.DataFrame(X, columns=X.columns, index=X.index)
         return X_df
 
     def prepare_sequences_to_label(self):
         train_dataset = []
         # assert sequence_len % 2 == 1, "sequence_len must be odd"
         assert self.sequence_len % 2 == 1
-        obs_len = int((self.sequence_len - 1)/2)
-        seq_pad = torch.Tensor().new_full(size = (obs_len, int(self.n_features)), fill_value = -math.inf)
+        obs_len = int((self.sequence_len - 1) / 2)
+        seq_pad = torch.Tensor().new_full(
+            size=(obs_len, int(self.n_features)), fill_value=-math.inf
+        )
         for well in self.X:
-            well = torch.cat(
-                    (   seq_pad, 
-                        torch.as_tensor(well).float(), 
-                        seq_pad
-                    )
-                , dim=0)
+            well = torch.cat((seq_pad, torch.as_tensor(well).float(), seq_pad), dim=0)
             for i in range(well.shape[0]):
-                    if (i >= obs_len) and ((i + obs_len) < well.shape[0]):
-                        x1 = well[i - obs_len : i + obs_len+1, :]
-                        train_dataset.append(x1)
-                    else:
-                        continue
+                if (i >= obs_len) and ((i + obs_len) < well.shape[0]):
+                    x1 = well[i - obs_len : i + obs_len + 1, :]
+                    train_dataset.append(x1)
+                else:
+                    continue
         train_dataset = torch.stack(train_dataset, dim=0).permute(0, 1, 2)
         train_label = torch.cat(self.y)
         return train_dataset, train_label
@@ -246,7 +268,7 @@ class WellsDataset(Dataset):
             yi = self.y.loc[well_rows_index].to_numpy()
 
             training_data.append(xi)
-            training_labels.append(torch.as_tensor(yi))   
+            training_labels.append(torch.as_tensor(yi))
         return training_data, training_labels
 
     def prepare_sequences_to_sequences(self):
@@ -256,9 +278,7 @@ class WellsDataset(Dataset):
             train_dataset_well = list(
                 torch.split(torch.as_tensor(x1).float(), self.sequence_len)
             )
-            train_dataset_label = list(
-                torch.split(y1.float(), self.sequence_len)
-            )
+            train_dataset_label = list(torch.split(y1.float(), self.sequence_len))
 
             if len(train_dataset_well[-1]) < self.sequence_len:
                 train_dataset_well[-1] = torch.nn.functional.pad(
@@ -281,21 +301,38 @@ class WellsDataset(Dataset):
         return train_dataset, train_label
 
     def get_lithology_numbers(self):
-        lithology_numbers = {
-            self.PAD_IDX: self.PAD_IDX,
-            30000: 1,
-            65030: 2,
-            65000: 3,
-            80000: 4,
-            74000: 5,
-            70000: 6,
-            70032: 7,
-            88000: 8,
-            86000: 9,
-            99000: 10,
-            90000: 11,
-            93000: 12,
-        }
+        if self.model_type == "seq2seq":
+            lithology_numbers = {
+                self.PAD_IDX: self.PAD_IDX,
+                30000: 1,
+                65030: 2,
+                65000: 3,
+                80000: 4,
+                74000: 5,
+                70000: 6,
+                70032: 7,
+                88000: 8,
+                86000: 9,
+                99000: 10,
+                90000: 11,
+                93000: 12,
+            }
+        else:
+            lithology_numbers = {
+                0: 0,
+                30000: 0,
+                65030: 1,
+                65000: 2,
+                80000: 3,
+                74000: 4,
+                70000: 5,
+                70032: 6,
+                88000: 7,
+                86000: 8,
+                99000: 9,
+                90000: 10,
+                93000: 11,
+            }
         return lithology_numbers
 
     def get_lithology_names(self):
@@ -331,6 +368,7 @@ def main():
     )
 
     print(test_dataset.train_dataset.shape, test_dataset.train_label.shape)
+
 
 if __name__ == "__main__":
     main()

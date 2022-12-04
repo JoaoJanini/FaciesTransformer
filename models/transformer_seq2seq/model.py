@@ -3,8 +3,8 @@ from typing import List, Optional, Tuple, Union
 import torch
 from torch import nn
 from transformers import PreTrainedModel
-from hf_sequence_to_sequence.configuration import FaciesConfig
-from hf_sequence_to_sequence.embedding import PositionalEncoding, Embeddings
+from configuration import FaciesConfig
+from embedding import PositionalEncoding, Embeddings
 import torch.utils.checkpoint
 import torch.nn.functional as F
 import math
@@ -21,7 +21,7 @@ from transformers.modeling_outputs import (
     Seq2SeqModelOutput,
     Seq2SeqLMOutput,
     BaseModelOutput,
-    SequenceClassifierOutput
+    SequenceClassifierOutput,
 )
 
 
@@ -143,24 +143,34 @@ class FaciesModelEncoder(PreTrainedModel):
         super().__init__(config)
         self.config = config
         self.cat_features_indexes = self.config.cat_features_indexes
-        self.encoder_layer = TransformerEncoderLayer(
+        self.encoder_layer_timestep = TransformerEncoderLayer(
             d_model=config.d_model,
             nhead=config.encoder_attention_heads,
             dim_feedforward=config.encoder_ffn_dim,
             dropout=config.encoder_layerdrop,
             batch_first=True,
         )
+
+        self.encoder_layer_channel = TransformerEncoderLayer(
+            d_model=config.d_model,
+            nhead=config.encoder_attention_heads,
+            dim_feedforward=config.encoder_ffn_dim,
+            dropout=config.encoder_layerdrop,
+            batch_first=True,
+        )
+
         self.norm = LayerNorm(config.d_model)
         self.model_timestep = TransformerEncoder(
-            encoder_layer=self.encoder_layer,
+            encoder_layer=self.encoder_layer_timestep,
             num_layers=config.encoder_layers,
             norm=self.norm,
         )
         self.model_channel = TransformerEncoder(
-            encoder_layer=self.encoder_layer,
+            encoder_layer=self.encoder_layer_channel,
             num_layers=config.encoder_layers,
             norm=self.norm,
         )
+
         self.embed_tokens_channel = torch.nn.Linear(config.sequence_len, config.d_model)
         self.embed_tokens_steps = torch.nn.Linear(
             self.config.n_input_features, config.d_model
@@ -196,18 +206,30 @@ class FaciesModelEncoder(PreTrainedModel):
         # score矩阵为 input， 默认加mask 和 pe
 
         # get categorical features from input_ids
-        # cat_features = input_ids[:, :, self.cat_features_indexes[0]]
+        # cat_features = input_ids[:, :, self.cat_features_inzdexes[0]]
         # get numerical features from input_ids
+
+        attn_mask = torch.isnan(input_ids)
 
         encoding_1 = self.embed_tokens_steps(input_ids)
         encoding_1 = self.positional_encoding(encoding_1)
+
+        attn_mask = attn_mask.view(
+            encoding_1.shape[0], encoding_1.shape[1], encoding_1.shape[2]
+        )
+
+        mask = torch.ones((batch_size, channels, time_steps))
+
         output_encoder_1 = self.model_timestep(
-            encoding_1, mask=None, src_key_padding_mask=None
+            encoding_1, mask=attn_mask, src_key_padding_mask=None
         )
+
         channel_encoding = self.embed_tokens_channel(input_ids.transpose(-1, -2))
+
         output_encoder_2 = self.model_channel(
-            channel_encoding, mask=None, src_key_padding_mask=None
+            channel_encoding, mask=channel_mask, src_key_padding_mask=None
         )
+
         output_encoder_1 = output_encoder_1.reshape(output_encoder_1.shape[0], -1)
         output_encoder_2 = output_encoder_2.reshape(output_encoder_2.shape[0], -1)
         gate = F.softmax(
@@ -415,11 +437,13 @@ class FaciesModel(PreTrainedModel):
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(last_hidden_state=encoder_outputs[0])
 
+        encoder_attention_mask = attention_mask
+
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
-            encoder_hidden_states= encoder_outputs[0].reshape(
-            encoder_outputs[0].shape[0], 1, encoder_outputs[0].shape[1]
+            encoder_hidden_states=encoder_outputs[0].reshape(
+                encoder_outputs[0].shape[0], 1, encoder_outputs[0].shape[1]
             ),
             encoder_attention_mask=attention_mask,
             head_mask=decoder_head_mask,
@@ -568,6 +592,7 @@ class FaciesForClassification(PreTrainedModel):
         self.config = config
         self.encoder = FaciesModelEncoder(config)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
+
     def get_encoder(self):
         return self.model.get_encoder()
 
