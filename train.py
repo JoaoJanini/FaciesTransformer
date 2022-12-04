@@ -10,12 +10,25 @@ models = {
     "xgb": {"folder_path": "xgb"},
 }
 
-model = "xgb"
-folder_path = models[model]["folder_path"]
+model_choice = "xgb"
+folder_path = models[model_choice]["folder_path"]
 last_model = f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
+for directory in ["trained_models", "predictions", "runs"]:
+    models[model_choice][
+        directory
+    ] = f"{base_path}/{directory}/{folder_path}/{last_model}"
+    try:
+        os.mkdir(f"{base_path}/{directory}/{folder_path}")
+    except FileExistsError:
+        pass
+
+trained_models_path = models[model_choice]["trained_models"]
+predictions_path = models[model_choice]["predictions"]
+runs_path = models[model_choice]["runs"]
+
 if __name__ == "__main__":
-    if model == "seq2seq":
+    if model_choice == "seq2seq":
 
         from transformers import (
             TrainingArguments,
@@ -30,10 +43,6 @@ if __name__ == "__main__":
         from torch.utils.data import random_split
         from datetime import datetime
         from datasets import load_metric
-
-        model_path = f"{base_path}/trained_models/{folder_path}/{last_model}"
-        predictions_path = f"{base_path}/predictions/{folder_path}/{last_model}"
-        runs_path = f"{base_path}/runs/{folder_path}/{last_model}"
 
         DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         BATCH_SIZE = 10
@@ -126,10 +135,12 @@ if __name__ == "__main__":
             "forced_eos_token_id": train_dataset.PAD_IDX,
             "return_dict": False,
         }
-
+        os.mkdir(path=f"{trained_models_path}")
         facies_transformer_config = FaciesConfig(**facies_config)
-        facies_transformer_config.save_pretrained(f"{model_path}/config")
-        facies_transformer_config = FaciesConfig.from_pretrained(f"{model_path}/config")
+        facies_transformer_config.save_pretrained(f"{trained_models_path}/config")
+        facies_transformer_config = FaciesConfig.from_pretrained(
+            f"{trained_models_path}/config"
+        )
 
         facies_transformer = FaciesForConditionalGeneration(facies_transformer_config)
 
@@ -175,18 +186,15 @@ if __name__ == "__main__":
         except:
             torch.save(
                 facies_transformer.state_dict(),
-                f=f"{model_path}/model.pt",
+                f=f"{trained_models_path}/model.pt",
             )
         # Write the model directory to a text file called current_model.txt
-    elif model == "xgb":
+    elif model_choice == "xgb":
         from xgboost import XGBClassifier
         from dataset.dataset import WellsDataset
         from datetime import datetime
 
         seed = 7
-        model_path = f"{base_path}/trained_models/{folder_path}/{last_model}"
-        runs_path = f"{base_path}/runs/{folder_path}/{last_model}"
-
         WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB", "SP"]
         LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
         train_dataset = WellsDataset(
@@ -207,10 +215,11 @@ if __name__ == "__main__":
             subsample=0.9,
             colsample_bytree=0.9,
             eval_metric="mlogloss",
+            tree_method="gpu_hist",
             verbose=2020,
             reg_lambda=1500,
         )
         model.fit(train_dataset.X, train_dataset.y)
         # Increase print limit for torch tensor
-        os.mkdir(model_path)
-        model.save_model(f"{model_path}/model.json")
+        os.mkdir(path=f"{trained_models_path}")
+        model.save_model(f"{trained_models_path}/model.json")

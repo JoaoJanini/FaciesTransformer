@@ -35,23 +35,25 @@ WIRELINE_LOGS = [
     "ROPA",
     "RXO",
 ]
+
+
 def get_lithology_numbers():
     lithology_numbers = {
-        0: 0,
-        30000: 1,
-        65030: 2,
-        65000: 3,
-        80000: 4,
-        74000: 5,
-        70000: 6,
-        70032: 7,
-        88000: 8,
-        86000: 9,
-        99000: 10,
-        90000: 11,
-        93000: 12,
+        30000: 0,
+        65030: 1,
+        65000: 2,
+        80000: 3,
+        74000: 4,
+        70000: 5,
+        70032: 6,
+        88000: 7,
+        86000: 8,
+        99000: 9,
+        90000: 10,
+        93000: 11,
     }
     return lithology_numbers
+
 
 def get_lithology_names():
     # Define special symbols and indices
@@ -71,6 +73,25 @@ def get_lithology_names():
         93000: "Basement",
     }
     return lithology_names
+
+
+def get_index_to_lithology_number():
+    index_to_lithology_number = {
+        0: 30000,
+        1: 65030,
+        2: 65000,
+        3: 80000,
+        4: 74000,
+        5: 70000,
+        6: 70032,
+        7: 88000,
+        8: 86000,
+        9: 99000,
+        10: 90000,
+        11: 93000,
+    }
+
+    return index_to_lithology_number
 
 
 class WellsDataset(Dataset):

@@ -1,31 +1,33 @@
 from sklearn import metrics
 import numpy as np
 import pandas as pd
-import seaborn as sn
-import matplotlib.pyplot as plt
+
 import torch
 import matplotlib.patches as mpatches
 
-
-def get_confusion_matrix(y_trues, y_preds, labels):
+def get_confusion_matrix(title, y_trues, y_preds, labels, path):
+    import matplotlib.pyplot as plt
+    import seaborn as sn
     confusion_matrix = metrics.confusion_matrix(
         y_trues, y_preds, labels=labels, normalize="true"
     )
     df_cm = pd.DataFrame(confusion_matrix, labels, labels)
     # colormap: see this and choose your more dear
     df_cm.drop(columns=["Basement"], index=["Basement"])
-    sn.set(font_scale=1.4)  # for label size
-    sn.set(rc={"figure.figsize": (32.0, 32.0)})
-    sn.set()
+    fig, ax = plt.subplots(figsize=(32.0, 32.0))
+      # for label size
     sn.heatmap(
-        df_cm, annot=True, fmt="g", annot_kws={"size": 16}, cmap="Oranges"
+        df_cm, annot=True, fmt="g", annot_kws={"size": 16}, cmap="Oranges", ax=ax
     )  # font size
-    plt.ylabel("Actual")
-    plt.xlabel("Predicted")
+    ax.set_ylabel("Actual")
+    ax.set_xlabel("Predicted")
+    ax.set_title(f"{title}", fontsize=32)
     plt.yticks(rotation=45)
-    plt.title("Confusion Matrix for Lithology Classification", fontsize=32)
+    fig.show()
+    plt.show(block = False)
+    fig.savefig(f"{path}/{title}.jpg")
 
-    plt.show()
+
     return confusion_matrix
 
 
@@ -50,7 +52,7 @@ def get_metrics(y_trues, y_preds, labels):
 
 
 def score(y_true, y_pred):
-    A = np.load("/home/joao/code/tcc/seq2seq/data/penalty_matrix.npy")
+    A = np.load("/home/joao/code/tcc/seq2seq/data/raw/penalty_matrix.npy")
     S = 0.0
     y_true = y_true.astype(int)
     y_pred = y_pred.astype(int)
@@ -81,7 +83,9 @@ lithology_numbers = {
 # REDO THE FOLLOWING CODE SO THAT IT PLOTS ON LITHOFACIE TRACK FOR EACH MODEL PREDCITION, AND ONE FOR THE ACTUAL PREDICTION. Dont plot thhe GR, NPHI and RHOB tracks. Just the lithofacies track.
 
 
-def makeplot(models, well_name):
+def makeplot(models, well_name, depth, top_depth, bottom_depth, path):
+    import matplotlib.pyplot as plt
+
     fig, ax = plt.subplots(figsize=(15, 10))
 
     # Set up the plot axes
@@ -95,14 +99,12 @@ def makeplot(models, well_name):
 
     # As our curve scales will be detached from the top of the track,
     # this code adds the top border back in without dealing with splines
+
     for model_name, model in models.items():
         ax = model["ax"]
         well = model["predictions_df"].loc[
-            model["predictions_df"]["WELL"] == well_name
+            (model["predictions_df"]["WELL"] == well_name) | (model["predictions_df"]["WELL"] == well_name.replace(" ", ""))
         ][["WELL", "DEPTH_MD", "FORCE_2020_LITHOFACIES_LITHOLOGY"]]
-        depth = well["DEPTH_MD"]
-        top_depth = max(well.DEPTH_MD)
-        bottom_depth = min(well.DEPTH_MD)
 
         ax.plot(
             well["FORCE_2020_LITHOFACIES_LITHOLOGY"],
@@ -156,8 +158,8 @@ def makeplot(models, well_name):
         mode="expand",
     )
     fig.subplots_adjust(wspace=0.15)
-    fig.show()
-    plt.show()
     # remove / from well name to save as png
     well_name = well_name.replace("/", "_")
-    fig.savefig(f"/home/joao/code/tcc/seq2seq/{well_name}.png")
+    fig.show()
+    plt.show(block=False)
+    fig.savefig(f"{path}/{well_name}.jpg")

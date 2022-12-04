@@ -1,26 +1,34 @@
 import os
 
+model_choice = "xgb"
 
-base_path = "/home/joao/code/tcc/seq2seq/data/"
-
+base_path = "/home/joao/code/tcc/seq2seq/data"
 models = {
     "seq2seq": {
-        "folder_path": f"seq2seq-transformer",
+        "folder_path": "seq2seq",
     },
-    "xgb": {"folder_path": f"xgboost"},
+    "xgb": {"folder_path": "xgb"},
 }
 
-model = "seq2seq"
-folder_path = models[model]["folder_path"]
-
+folder_path = models[model_choice]["folder_path"]
 models_directories = os.listdir(f"{base_path}/trained_models/{folder_path}")
-last_model = models_directories.sort()[-1]
+last_model = sorted(models_directories)[-1]
+
+for directory in ["trained_models", "predictions", "runs"]:
+    models[model_choice][
+        directory
+    ] = f"{base_path}/{directory}/{folder_path}/{last_model}"
+    try:
+        os.mkdir(f"{base_path}/{directory}/{folder_path}")
+    except FileExistsError:
+        pass
+
+trained_models_path = models[model_choice]["trained_models"]
+predictions_path = models[model_choice]["predictions"]
+runs_path = models[model_choice]["runs"]
+
 if __name__ == "__main__":
-    if model == "seq2seq":
-
-        model_path = f"{base_path}/trained_models/{folder_path}/{last_model}"
-        prediction_path = f"{base_path}/predictions/{folder_path}/{last_model}"
-
+    if model_choice == "seq2seq":
 
         from transformers import Trainer, logging
         from model import FaciesForConditionalGeneration
@@ -44,12 +52,16 @@ if __name__ == "__main__":
             model_input = {"input_ids": src_batch, "labels": tgt_batch}
             return model_input
 
-        facies_transformer_config = FaciesConfig.from_pretrained(f"{model_path}/config")
+        facies_transformer_config = FaciesConfig.from_pretrained(
+            f"{trained_models_path}/config"
+        )
 
         facies_transformer = FaciesForConditionalGeneration(
             facies_transformer_config
         ).to(DEVICE)
-        facies_transformer.load_state_dict(torch.load(f"{model_path}/model.pt"))
+        facies_transformer.load_state_dict(
+            torch.load(f"{trained_models_path}/model.pt")
+        )
 
         BATCH_SIZE = 128
         SEQUENCE_LEN = 5
@@ -109,29 +121,18 @@ if __name__ == "__main__":
         wells_depth.to_csv(f"{prediction_path}/facies_prediction.csv")
 
         # Write the model directory to a text file called current_model.txt
-    elif model == "xgb":
+    elif model_choice == "xgb":
 
-        model_path = f"{base_path}/trained_models/{folder_path}/{last_model}"
+        trained_models_path = f"{base_path}/trained_models/{folder_path}/{last_model}"
         prediction_path = f"{base_path}/predictions/{folder_path}/{last_model}"
 
-        from numpy import loadtxt
         from xgboost import XGBClassifier
-        from sklearn.model_selection import train_test_split
         from dataset.dataset import WellsDataset
-        from datetime import datetime
         import os
-        import numpy as np
-        import xgboost
 
         seed = 7
         WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB", "SP"]
         LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
-        train_dataset = WellsDataset(
-            dataset_type="train",
-            model_type="label2label",
-            feature_columns=WIRELINE_LOGS_HEADER,
-            label_columns=LABEL_COLUMN_HEADER,
-        )
 
         test_dataset = WellsDataset(
             dataset_type="test",
@@ -141,7 +142,7 @@ if __name__ == "__main__":
         )
 
         model = XGBClassifier()
-        model.load_model(f"{model_path}/model.json")
+        model.load_model(f"{trained_models_path}/model.json")
         # save to Json
         x_test = test_dataset.X
         y_test = test_dataset.y

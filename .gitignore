@@ -1,6 +1,7 @@
 data/raw/*
 data/predictions/*
 data/runs/*
+data/tcc/*
 # the content of subfolders inside data/trained_models, except for the subfolders themselves
 data/trained_models/*/*
 saved_models/*
