@@ -3,8 +3,8 @@ from typing import List, Optional, Tuple, Union
 import torch
 from torch import nn
 from transformers import PreTrainedModel
-from configuration import FaciesConfig
-from embedding import PositionalEncoding, Embeddings
+from models.seq2seq.configuration import FaciesConfig
+from models.seq2seq.embedding import PositionalEncoding, Embeddings
 import torch.utils.checkpoint
 import torch.nn.functional as F
 import math
@@ -208,20 +208,14 @@ class FaciesModelEncoder(PreTrainedModel):
         # get categorical features from input_ids
         # cat_features = input_ids[:, :, self.cat_features_inzdexes[0]]
         # get numerical features from input_ids
-
-        attn_mask = torch.isnan(input_ids)
-
+        attention_mask_step = torch.isnan(input_ids) 
         encoding_1 = self.embed_tokens_steps(input_ids)
+    
         encoding_1 = self.positional_encoding(encoding_1)
 
-        attn_mask = attn_mask.view(
-            encoding_1.shape[0], encoding_1.shape[1], encoding_1.shape[2]
-        )
-
-        mask = torch.ones((batch_size, channels, time_steps))
 
         output_encoder_1 = self.model_timestep(
-            encoding_1, mask=attn_mask, src_key_padding_mask=None
+            encoding_1, mask=attention_mask_step, src_key_padding_mask=None
         )
 
         channel_encoding = self.embed_tokens_channel(input_ids.transpose(-1, -2))

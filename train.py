@@ -10,7 +10,7 @@ models = {
     "xgb": {"folder_path": "xgb"},
 }
 
-model_choice = "xgb"
+model_choice = "seq2seq"
 folder_path = models[model_choice]["folder_path"]
 last_model = f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
@@ -36,8 +36,8 @@ if __name__ == "__main__":
             Seq2SeqTrainingArguments,
             Seq2SeqTrainer,
         )
-        from model import FaciesForConditionalGeneration
-        from configuration import FaciesConfig
+        from models.seq2seq.model import FaciesForConditionalGeneration
+        from models.seq2seq.configuration import FaciesConfig
         import torch
         from dataset.dataset import WellsDataset
         from torch.utils.data import random_split
@@ -183,11 +183,12 @@ if __name__ == "__main__":
         )
         try:
             best_model = trainer.train()
-        except:
+        except Exception as e:
             torch.save(
                 facies_transformer.state_dict(),
                 f=f"{trained_models_path}/model.pt",
             )
+            raise e
         # Write the model directory to a text file called current_model.txt
     elif model_choice == "xgb":
         from xgboost import XGBClassifier
