@@ -1,6 +1,6 @@
 import os
 
-model_choice = "xgb"
+model_choice = "seq2seq"
 
 base_path = "/home/joao/code/tcc/seq2seq/data"
 models = {
@@ -31,15 +31,15 @@ if __name__ == "__main__":
     if model_choice == "seq2seq":
 
         from transformers import Trainer, logging
-        from model import FaciesForConditionalGeneration
-        from configuration import FaciesConfig
+        from models.seq2seq.model import FaciesForConditionalGeneration
+        from models.seq2seq.configuration import FaciesConfig
         import torch
         from torch.utils.data import DataLoader
         from dataset.dataset import WellsDataset
         import numpy as np
 
         DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
+        prediction_path = f"{base_path}/predictions/{folder_path}/{last_model}"
         # read string from current_model.txt
         def collate_fn(batch):
             src_batch, tgt_batch = [], []
@@ -60,7 +60,7 @@ if __name__ == "__main__":
             facies_transformer_config
         ).to(DEVICE)
         facies_transformer.load_state_dict(
-            torch.load(f"{trained_models_path}/model.pt")
+            torch.load(f"/home/joao/code/tcc/seq2seq/data/runs/seq2seq/2022-12-06_15-18-06/checkpoint-7500/pytorch_model.bin")
         )
 
         BATCH_SIZE = 128
@@ -111,8 +111,16 @@ if __name__ == "__main__":
 
             decoded_labels = torch.cat((decoded_labels, outputs[:, 1:-1].flatten()))
 
+        from datasets import load_metric
+        metrics = dict()
+        accuracy_metric = load_metric("accuracy")
         labels = test_dataset.train_label.flatten().to(DEVICE)
-        decoded_labels = decoded_labels[labels != 0].cpu().numpy()
+        decoded_labels = decoded_labels[labels != 12]
+        labels = labels[labels != 12]
+        metrics.update(
+            accuracy_metric.compute(predictions=decoded_labels, references=labels)
+        )
+       
 
         wells_depth = test_dataset.df_position
         wells_depth["FORCE_2020_LITHOFACIES_LITHOLOGY"] = decoded_labels

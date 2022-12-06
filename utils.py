@@ -5,6 +5,20 @@ import pandas as pd
 import torch
 import matplotlib.patches as mpatches
 
+
+def create_missing_mask():
+
+    def get_mask_batch2(self, tensor):
+            mask = torch.zeros(tensor.shape[0], tensor.shape[1], tensor.shape[1])
+            mask = tensor.unsqueeze(1) & tensor.unsqueeze(2)
+            return mask 
+
+    step_wise_attention_mask = torch.isnan(input_ids[:,:, n_features-1])
+
+    step_wise_attention_mask = ~self.get_mask_batch2(~step_wise_attention_mask)
+    step_wise_attention_mask = step_wise_attention_mask.unsqueeze(1).expand(-1, num_heads, -1, -1)
+    step_wise_attention_mask = step_wise_attention_mask.reshape(-1, sequence_len, sequence_len)
+
 def get_confusion_matrix(title, y_trues, y_preds, labels, path):
     import matplotlib.pyplot as plt
     import seaborn as sn

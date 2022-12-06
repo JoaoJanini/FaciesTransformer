@@ -137,7 +137,7 @@ class WellsDataset(Dataset):
         self.output_len = output_len
         self.categories_label_encoders = categories_label_encoders
         # Define special symbols and indices
-        self.PAD_IDX = 0
+        self.PAD_IDX = 12
         self.special_symbols = [self.PAD_IDX]
         # Make sure the tokens are in order of their indices to properly insert them in vocab
         if self.output_len is None:
@@ -150,7 +150,7 @@ class WellsDataset(Dataset):
             + label_columns
             + feature_columns
             + categorical_features_columns
-        ]
+        ].fillna(method="ffill").fillna(method="bfill")
         self.well_indexes = pd.DataFrame(
             self.data["WELL"].apply(lambda x: self.wells.index(x)), columns=["WELL"]
         )
@@ -208,8 +208,11 @@ class WellsDataset(Dataset):
 
     def prepare_X(self):
         X = self.data[self.feature_columns]
+        if self.scaler is None:
+            self.scaler = preprocessing.StandardScaler().fit(X)
+        scaled_X = self.scaler.transform(X)
         self.df_position = self.data[["WELL"] + ["DEPTH_MD"]]
-        X_df = pd.DataFrame(X, columns=X.columns, index=X.index)
+        X_df = pd.DataFrame(scaled_X, columns=X.columns, index=X.index)
         return X_df
 
     def prepare_sequences_to_label(self):
@@ -311,6 +314,8 @@ class WellsDataset(Dataset):
                 train_dataset_label[-1] = torch.nn.functional.pad(
                     train_dataset_label[-1],
                     (0, 0, 0, self.sequence_len - train_dataset_label[-1].shape[0]),
+                    "constant",
+                    self.PAD_IDX,
                 )
             train_dataset = train_dataset + train_dataset_well
             train_label = train_label + train_dataset_label
@@ -324,19 +329,19 @@ class WellsDataset(Dataset):
     def get_lithology_numbers(self):
         if self.model_type == "seq2seq":
             lithology_numbers = {
+                30000: 0,
+                65030: 1,
+                65000: 2,
+                80000: 3,
+                74000: 4,
+                70000: 5,
+                70032: 6,
+                88000: 7,
+                86000: 8,
+                99000: 9,
+                90000: 10,
+                93000: 11,
                 self.PAD_IDX: self.PAD_IDX,
-                30000: 1,
-                65030: 2,
-                65000: 3,
-                80000: 4,
-                74000: 5,
-                70000: 6,
-                70032: 7,
-                88000: 8,
-                86000: 9,
-                99000: 10,
-                90000: 11,
-                93000: 12,
             }
         else:
             lithology_numbers = {
@@ -382,7 +387,7 @@ def main():
 
     test_dataset = WellsDataset(
         dataset_type="test",
-        model_type="seq2label",
+        model_type="seq2seq",
         feature_columns=WIRELINE_LOGS_HEADER,
         sequence_len=5,
         label_columns=LABEL_COLUMN_HEADER,

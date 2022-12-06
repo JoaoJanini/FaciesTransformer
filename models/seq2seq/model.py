@@ -204,24 +204,24 @@ class FaciesModelEncoder(PreTrainedModel):
     ) -> Union[Tuple, Seq2SeqModelOutput]:
         # step-wise
         # score矩阵为 input， 默认加mask 和 pe
+        batch_size = input_ids.shape[0]
+        sequence_len = self.config.sequence_len
 
-        # get categorical features from input_ids
-        # cat_features = input_ids[:, :, self.cat_features_inzdexes[0]]
-        # get numerical features from input_ids
-        attention_mask_step = torch.isnan(input_ids) 
+        num_heads = self.config.encoder_attention_heads
+        n_features = self.config.n_input_features
+
+        # turn mask true into 1 and false into 0
         encoding_1 = self.embed_tokens_steps(input_ids)
     
         encoding_1 = self.positional_encoding(encoding_1)
 
-
         output_encoder_1 = self.model_timestep(
-            encoding_1, mask=attention_mask_step, src_key_padding_mask=None
+            encoding_1, mask = None, src_key_padding_mask=None
         )
 
         channel_encoding = self.embed_tokens_channel(input_ids.transpose(-1, -2))
-
         output_encoder_2 = self.model_channel(
-            channel_encoding, mask=channel_mask, src_key_padding_mask=None
+            channel_encoding, mask=None, src_key_padding_mask=None
         )
 
         output_encoder_1 = output_encoder_1.reshape(output_encoder_1.shape[0], -1)
@@ -431,7 +431,6 @@ class FaciesModel(PreTrainedModel):
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(last_hidden_state=encoder_outputs[0])
 
-        encoder_attention_mask = attention_mask
 
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
@@ -439,7 +438,7 @@ class FaciesModel(PreTrainedModel):
             encoder_hidden_states=encoder_outputs[0].reshape(
                 encoder_outputs[0].shape[0], 1, encoder_outputs[0].shape[1]
             ),
-            encoder_attention_mask=attention_mask,
+            encoder_attention_mask=None,
             head_mask=decoder_head_mask,
             cross_attn_head_mask=cross_attn_head_mask,
             past_key_values=past_key_values,
