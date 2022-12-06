@@ -215,25 +215,7 @@ class WellsDataset(Dataset):
         X_df = pd.DataFrame(scaled_X, columns=X.columns, index=X.index)
         return X_df
 
-    def prepare_sequences_to_label(self):
-        train_dataset = []
-        # assert sequence_len % 2 == 1, "sequence_len must be odd"
-        assert self.sequence_len % 2 == 1
-        obs_len = int((self.sequence_len - 1) / 2)
-        seq_pad = torch.Tensor().new_full(
-            size=(obs_len, int(self.n_features)), fill_value=-math.inf
-        )
-        for well in self.X:
-            well = torch.cat((seq_pad, torch.as_tensor(well).float(), seq_pad), dim=0)
-            for i in range(well.shape[0]):
-                if (i >= obs_len) and ((i + obs_len) < well.shape[0]):
-                    x1 = well[i - obs_len : i + obs_len + 1, :]
-                    train_dataset.append(x1)
-                else:
-                    continue
-        train_dataset = torch.stack(train_dataset, dim=0).permute(0, 1, 2)
-        train_label = torch.cat(self.y)
-        return train_dataset, train_label
+  
 
     def prepare_X_categorical(self):
         X_df = pd.DataFrame(
@@ -295,6 +277,21 @@ class WellsDataset(Dataset):
             training_labels.append(torch.as_tensor(yi))
         return training_data, training_labels
 
+    def prepare_sequences_to_label(self):
+        train_dataset = []
+        # assert sequence_len % 2 == 1, "sequence_len must be odd"        
+        for well in self.X:
+            pad = torch.full((self.sequence_len-1,), fill_value=np.nan)
+            before_split = torch.cat([well, pad])
+
+            sequences = before_split.unfold(0,self.sequence_len,1)
+            xi = torch.Tensor(pd.DataFrame(sequences.numpy()).fillna(method="ffill").to_numpy())
+
+            train_dataset.append(xi)
+        train_dataset = torch.stack(train_dataset, dim=0).permute(0, 1, 2)
+        train_label = torch.cat(self.y)
+        return train_dataset, train_label
+
     def prepare_sequences_to_sequences(self):
         train_dataset = []
         train_label = []
@@ -317,6 +314,9 @@ class WellsDataset(Dataset):
                     "constant",
                     self.PAD_IDX,
                 )
+                pad = torch.full((sequence_len-1,), fill_value=np.nan)
+
+
             train_dataset = train_dataset + train_dataset_well
             train_label = train_label + train_dataset_label
             # pad last torch tensor from train_label with zeros so that shape is (sequence_len, 1)
@@ -387,7 +387,7 @@ def main():
 
     test_dataset = WellsDataset(
         dataset_type="test",
-        model_type="seq2seq",
+        model_type="seq2label",
         feature_columns=WIRELINE_LOGS_HEADER,
         sequence_len=5,
         label_columns=LABEL_COLUMN_HEADER,
