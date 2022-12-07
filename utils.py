@@ -7,21 +7,26 @@ import matplotlib.patches as mpatches
 
 
 def create_missing_mask():
-
     def get_mask_batch2(self, tensor):
-            mask = torch.zeros(tensor.shape[0], tensor.shape[1], tensor.shape[1])
-            mask = tensor.unsqueeze(1) & tensor.unsqueeze(2)
-            return mask 
+        mask = torch.zeros(tensor.shape[0], tensor.shape[1], tensor.shape[1])
+        mask = tensor.unsqueeze(1) & tensor.unsqueeze(2)
+        return mask
 
-    step_wise_attention_mask = torch.isnan(input_ids[:,:, n_features-1])
+    step_wise_attention_mask = torch.isnan(input_ids[:, :, n_features - 1])
 
     step_wise_attention_mask = ~self.get_mask_batch2(~step_wise_attention_mask)
-    step_wise_attention_mask = step_wise_attention_mask.unsqueeze(1).expand(-1, num_heads, -1, -1)
-    step_wise_attention_mask = step_wise_attention_mask.reshape(-1, sequence_len, sequence_len)
+    step_wise_attention_mask = step_wise_attention_mask.unsqueeze(1).expand(
+        -1, num_heads, -1, -1
+    )
+    step_wise_attention_mask = step_wise_attention_mask.reshape(
+        -1, sequence_len, sequence_len
+    )
+
 
 def get_confusion_matrix(title, y_trues, y_preds, labels, path):
     import matplotlib.pyplot as plt
     import seaborn as sn
+
     confusion_matrix = metrics.confusion_matrix(
         y_trues, y_preds, labels=labels, normalize="true"
     )
@@ -29,7 +34,7 @@ def get_confusion_matrix(title, y_trues, y_preds, labels, path):
     # colormap: see this and choose your more dear
     df_cm.drop(columns=["Basement"], index=["Basement"])
     fig, ax = plt.subplots(figsize=(32.0, 32.0))
-      # for label size
+    # for label size
     sn.heatmap(
         df_cm, annot=True, fmt="g", annot_kws={"size": 16}, cmap="Oranges", ax=ax
     )  # font size
@@ -38,9 +43,8 @@ def get_confusion_matrix(title, y_trues, y_preds, labels, path):
     ax.set_title(f"{title}", fontsize=32)
     plt.yticks(rotation=45)
     fig.show()
-    plt.show(block = False)
+    plt.show(block=False)
     fig.savefig(f"{path}/{title}.jpg")
-
 
     return confusion_matrix
 
@@ -103,12 +107,13 @@ def makeplot(models, well_name, depth, top_depth, bottom_depth, path):
     fig, ax = plt.subplots(figsize=(15, 10))
 
     # Set up the plot axes
-    ax1 = plt.subplot2grid((1, 4), (0, 0), rowspan=1, colspan=1)
-    ax2 = plt.subplot2grid((1, 4), (0, 1), rowspan=1, colspan=1, sharey=ax1)
-    ax3 = plt.subplot2grid((1, 4), (0, 2), rowspan=1, colspan=1, sharey=ax1)
-    ax4 = plt.subplot2grid((1, 4), (0, 3), rowspan=1, colspan=1, sharey=ax1)
+    ax1 = plt.subplot2grid((1, 5), (0, 0), rowspan=1, colspan=1)
+    ax2 = plt.subplot2grid((1, 5), (0, 1), rowspan=1, colspan=1, sharey=ax1)
+    ax3 = plt.subplot2grid((1, 5), (0, 2), rowspan=1, colspan=1, sharey=ax1)
+    ax4 = plt.subplot2grid((1, 5), (0, 3), rowspan=1, colspan=1, sharey=ax1)
+    ax5 = plt.subplot2grid((1, 5), (0, 4), rowspan=1, colspan=1, sharey=ax1)
 
-    for model_name, ax in zip(models, [ax1, ax2, ax3, ax4]):
+    for model_name, ax in zip(models, [ax1, ax2, ax3, ax4, ax5]):
         models[model_name]["ax"] = ax
 
     # As our curve scales will be detached from the top of the track,
@@ -117,7 +122,8 @@ def makeplot(models, well_name, depth, top_depth, bottom_depth, path):
     for model_name, model in models.items():
         ax = model["ax"]
         well = model["predictions_df"].loc[
-            (model["predictions_df"]["WELL"] == well_name) | (model["predictions_df"]["WELL"] == well_name.replace(" ", ""))
+            (model["predictions_df"]["WELL"] == well_name)
+            | (model["predictions_df"]["WELL"] == well_name.replace(" ", ""))
         ][["WELL", "DEPTH_MD", "FORCE_2020_LITHOFACIES_LITHOLOGY"]]
 
         ax.plot(
@@ -146,12 +152,12 @@ def makeplot(models, well_name, depth, top_depth, bottom_depth, path):
 
     # Common functions for setting up the plot can be extracted into
     # a for loop. This saves repeating code.
-    for ax in [ax1, ax2, ax3, ax4]:
+    for ax in [ax1, ax2, ax3, ax4, ax5]:
         ax.set_ylim(bottom_depth, top_depth)
         ax.xaxis.set_label_position("top")
         plt.setp(ax.get_xticklabels(), visible=False)
 
-    for ax in [ax2, ax3, ax4]:
+    for ax in [ax2, ax3, ax4, ax5]:
         plt.setp(ax.get_yticklabels(), visible=False)
 
     patches = [
@@ -164,7 +170,7 @@ def makeplot(models, well_name, depth, top_depth, bottom_depth, path):
     ]
 
     # user legend_fig as legend to the main plot
-    ax4.legend(
+    ax5.legend(
         handles=patches,
         bbox_to_anchor=(1.05, 1),
         loc="upper left",

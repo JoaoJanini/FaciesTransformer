@@ -6,6 +6,9 @@ from urllib.request import urlopen
 import numpy as np
 import math
 
+from pycaret.classification import *
+
+
 WIRELINE_LOGS = [
     "WELL",
     "DEPTH_MD",
@@ -39,6 +42,7 @@ WIRELINE_LOGS = [
 
 def get_lithology_numbers():
     lithology_numbers = {
+        0: 0,
         30000: 0,
         65030: 1,
         65000: 2,
@@ -77,6 +81,7 @@ def get_lithology_names():
 
 def get_index_to_lithology_number():
     index_to_lithology_number = {
+        12:0,
         0: 30000,
         1: 65030,
         2: 65000,
@@ -108,6 +113,7 @@ class WellsDataset(Dataset):
         scaler=None,
         output_len=None,
         categories_label_encoders={},
+        pipeline_object_path="data/processed/pipeline_object.pkl",
     ):
         """
         Dataset objects for training datasets and test datasets
@@ -124,6 +130,7 @@ class WellsDataset(Dataset):
 
         super(WellsDataset, self).__init__()
         self.dataset_type = dataset_type
+        self.pipeline_object_path = pipeline_object_path
         self.download_data_locally = download_data_locally
         self.path = f"{path}/{dataset_type}.csv"
         self.url = urls[self.dataset_type]
@@ -135,6 +142,7 @@ class WellsDataset(Dataset):
         self.sequence_len = sequence_len
         self.scaler = scaler
         self.output_len = output_len
+        self.label_columns = label_columns
         self.categories_label_encoders = categories_label_encoders
         # Define special symbols and indices
         self.PAD_IDX = 12
@@ -144,32 +152,46 @@ class WellsDataset(Dataset):
             self.output_len = len(tuple(set(self.data_df[self.target[0]].to_numpy())))
 
         self.wells = list(self.data_df["WELL"].unique())
-        self.data = self.data_df[
-            ["WELL"]
-            + ["DEPTH_MD"]
-            + label_columns
-            + feature_columns
-            + categorical_features_columns
-        ].fillna(method="ffill").fillna(method="bfill")
+        self.feature_columns = feature_columns + categorical_features_columns
+        self.support_columns = ["WELL", "DEPTH_MD"]
+        if "DEPTH_MD" in self.feature_columns:
+            self.support_columns.remove("DEPTH_MD")
+        self.data = (
+            self.data_df[
+                self.support_columns
+                + self.label_columns
+                + self.feature_columns
+            ].fillna(method="ffill").fillna(method="bfill")
+        )
+
+
         self.well_indexes = pd.DataFrame(
             self.data["WELL"].apply(lambda x: self.wells.index(x)), columns=["WELL"]
         )
-        self.X = self.prepare_X()
 
-        if len(categorical_features_columns) > 0:
-            self.X_cat = self.prepare_X_categorical()
-            self.X = pd.concat([self.X, self.X_cat], axis=1)
-            self.categorical_columns_indexes = [
-                self.X.columns.get_loc(c) for c in self.categorical_features_columns
-            ]
+        self.df_position = self.data[["WELL"] + ["DEPTH_MD"]]
 
-        self.n_features = self.X.shape[1]
-        self.y = self.prepare_y()
+        if dataset_type == "test":
+            pipeline = load_model("/home/joao/code/tcc/seq2seq/example")
+            pipeline.steps.pop(-1)
+            self.y = self.prepare_y()
+            self.data = pipeline.transform(self.data)
+            self.X = self.data[self.feature_columns]
+            
+        else:
+            cat_features_dict = {feature_column : list(self.data[feature_column].unique()) for feature_column in categorical_features_columns}
 
-        if model_type == "label2label":
-            print("Label2Label")
+            setup(data=self.data, target=self.target[0], silent=True, ignore_features=self.support_columns, unknown_categorical_method="least_frequent", ordinal_features = cat_features_dict, normalize= True)
 
-        elif self.model_type == "seq2seq":
+            save_model('example', model_name='example')
+
+            self.X = get_config(variable="X")
+            self.n_features = self.X.shape[1]
+            self.y = self.prepare_y(get_config(variable="y"))
+    
+
+
+        if self.model_type == "seq2seq":
             self.X, self.y = self.separate_by_well()
 
             self.train_dataset, self.train_label = self.prepare_sequences_to_sequences()
@@ -177,13 +199,17 @@ class WellsDataset(Dataset):
             self.channel_len = self.train_dataset.shape[-2]
             self.input_len = self.train_dataset.shape[-1]
 
-        else:
+        elif self.model_type == "seq2label":
             self.X, self.y = self.separate_by_well()
 
             self.train_dataset, self.train_label = self.prepare_sequences_to_label()
             self.train_len = self.train_dataset.shape[0]
             self.channel_len = self.train_dataset.shape[-2]
             self.input_len = self.train_dataset.shape[-1]
+        elif self.model_type == "xgb":
+            self.train_dataset = self.X
+            self.train_label = self.y
+
 
     def __getitem__(self, index):
         return (self.train_dataset[index], self.train_label[index])
@@ -206,16 +232,6 @@ class WellsDataset(Dataset):
         data = pd.read_csv(path, sep=";")
         return data
 
-    def prepare_X(self):
-        X = self.data[self.feature_columns]
-        if self.scaler is None:
-            self.scaler = preprocessing.StandardScaler().fit(X)
-        scaled_X = self.scaler.transform(X)
-        self.df_position = self.data[["WELL"] + ["DEPTH_MD"]]
-        X_df = pd.DataFrame(scaled_X, columns=X.columns, index=X.index)
-        return X_df
-
-  
 
     def prepare_X_categorical(self):
         X_df = pd.DataFrame(
@@ -245,8 +261,12 @@ class WellsDataset(Dataset):
             )
         return X_df
 
-    def prepare_y(self):
-        y = self.data[self.target]
+    def prepare_y(self, y=None):
+        if y is None:
+
+            y = pd.DataFrame(self.data[self.target])
+        else: 
+            y = pd.DataFrame(y)
         y_tmp = (
             y[self.target[0]]
             .apply(lambda x: self.get_lithology_numbers()[x])
@@ -276,19 +296,24 @@ class WellsDataset(Dataset):
             training_data.append(xi)
             training_labels.append(torch.as_tensor(yi))
         return training_data, training_labels
-
+    def get_cat_dict(self):
+        return get_config('prep_pipe').named_steps["dtypes"].replacement
     def prepare_sequences_to_label(self):
         train_dataset = []
-        # assert sequence_len % 2 == 1, "sequence_len must be odd"        
+        # assert sequence_len % 2 == 1, "sequence_len must be odd"
         for well in self.X:
-            pad = torch.full((self.sequence_len-1,), fill_value=np.nan)
+            well = torch.Tensor(well)
+            pad = torch.full((self.sequence_len - 1, well.shape[1]), fill_value=np.nan)
             before_split = torch.cat([well, pad])
-
-            sequences = before_split.unfold(0,self.sequence_len,1)
-            xi = torch.Tensor(pd.DataFrame(sequences.numpy()).fillna(method="ffill").to_numpy())
-
-            train_dataset.append(xi)
-        train_dataset = torch.stack(train_dataset, dim=0).permute(0, 1, 2)
+            sequences = before_split.unfold(0, self.sequence_len, 1).transpose(-2, -1)
+            for i in range(
+                sequences.shape[0] + 1 - self.sequence_len, sequences.shape[0]
+            ):
+                sequences[i] = torch.Tensor(
+                    pd.DataFrame(sequences[i].numpy()).fillna(method="ffill").to_numpy()
+                )
+            train_dataset.append(sequences)
+        train_dataset = torch.cat(train_dataset, dim=0).permute(0, 1, 2)
         train_label = torch.cat(self.y)
         return train_dataset, train_label
 
@@ -312,10 +337,9 @@ class WellsDataset(Dataset):
                     train_dataset_label[-1],
                     (0, 0, 0, self.sequence_len - train_dataset_label[-1].shape[0]),
                     "constant",
-                    self.PAD_IDX,
+                    self.PAD_IDX
                 )
-                pad = torch.full((sequence_len-1,), fill_value=np.nan)
-
+  
 
             train_dataset = train_dataset + train_dataset_well
             train_label = train_label + train_dataset_label
@@ -389,7 +413,7 @@ def main():
         dataset_type="test",
         model_type="seq2label",
         feature_columns=WIRELINE_LOGS_HEADER,
-        sequence_len=5,
+        sequence_len=10,
         label_columns=LABEL_COLUMN_HEADER,
     )
 

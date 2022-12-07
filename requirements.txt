@@ -19,3 +19,4 @@ torchsummary
 hyperopt
 evaluate 
 xgboost
+pycaret

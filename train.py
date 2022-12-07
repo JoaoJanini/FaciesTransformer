@@ -8,9 +8,10 @@ models = {
         "folder_path": "seq2seq",
     },
     "xgb": {"folder_path": "xgb"},
+    "seq2label": {"folder_path": "seq2label"},
 }
 
-model_choice = "seq2seq"
+model_choice = "seq2label"
 folder_path = models[model_choice]["folder_path"]
 last_model = f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
@@ -56,6 +57,7 @@ if __name__ == "__main__":
             model_type="seq2seq",
             feature_columns=WIRELINE_LOGS_HEADER,
             label_columns=LABEL_COLUMN_HEADER,
+            pipeline_object_path= f"{trained_models_path}/config"
         )
 
         test_dataset = WellsDataset(
@@ -67,6 +69,7 @@ if __name__ == "__main__":
             scaler=train_dataset.scaler,
             output_len=train_dataset.output_len,
             categories_label_encoders=train_dataset.categories_label_encoders,
+            pipeline_object_path= f"{trained_models_path}/config"
         )
 
         DATA_LEN = train_dataset.train_len
@@ -155,8 +158,8 @@ if __name__ == "__main__":
             output_dir=f"{runs_path}",
             per_device_train_batch_size=BATCH_SIZE,
             per_device_eval_batch_size=256,
-            evaluation_strategy="steps",
-            num_train_epochs=4,
+            evaluation_strategy="epoch",
+            num_train_epochs=2,
             generation_max_length=SEQUENCE_LEN + 2,
             generation_num_beams=7,
             predict_with_generate=True,
@@ -180,7 +183,7 @@ if __name__ == "__main__":
                 f=f"{trained_models_path}/model.pt",
             )
             raise e
-        # Write the model directory to a text file called current_model.txt 
+        # Write the model directory to a text file called current_model.txt
     elif model_choice == "seq2label":
         from transformers import (
             TrainingArguments,
@@ -188,7 +191,10 @@ if __name__ == "__main__":
             Seq2SeqTrainingArguments,
             Seq2SeqTrainer,
         )
-        from models.seq2seq.model import FaciesForConditionalGeneration
+        from models.seq2seq.model import (
+            FaciesForConditionalGeneration,
+            FaciesForClassification,
+        )
         from models.seq2seq.configuration import FaciesConfig
         import torch
         from dataset.dataset import WellsDataset
@@ -270,12 +276,7 @@ if __name__ == "__main__":
             "scale_embedding": False,
             "use_cache": False,
             "num_labels": tgt_vocab_size,
-            "pad_token_id": train_dataset.PAD_IDX,
-            "bos_token_id": train_dataset.PAD_IDX,
-            "eos_token_id": train_dataset.PAD_IDX,
-            "is_encoder_decoder": True,
-            "decoder_start_token_id": train_dataset.PAD_IDX,
-            "forced_eos_token_id": train_dataset.PAD_IDX,
+            "is_encoder_decoder": False,
             "return_dict": False,
         }
         os.mkdir(path=f"{trained_models_path}")
@@ -285,17 +286,15 @@ if __name__ == "__main__":
             f"{trained_models_path}/config"
         )
 
-        facies_transformer = FaciesForConditionalGeneration(facies_transformer_config)
+        facies_transformer = FaciesForClassification(facies_transformer_config)
 
         def compute_metrics_fn(eval_preds):
             metrics = dict()
             accuracy_metric = load_metric("accuracy")
-            preds = eval_preds.predictions[:, 1:-1]
+            preds = eval_preds.predictions.argmax(-1).flatten()
             preds = preds.flatten()
-            labels = eval_preds.label_ids[:, :-2]
+            labels = eval_preds.label_ids.flatten()
             labels = labels.flatten()
-            preds = preds[labels != 12]
-            labels = labels[labels != 12]
 
             metrics.update(
                 accuracy_metric.compute(predictions=preds, references=labels)
@@ -307,8 +306,8 @@ if __name__ == "__main__":
             output_dir=f"{runs_path}",
             per_device_train_batch_size=BATCH_SIZE,
             per_device_eval_batch_size=256,
-            evaluation_strategy="steps",
-            num_train_epochs=4,
+            evaluation_strategy="epoch",
+            num_train_epochs=2,
             learning_rate=3.40752e-05,
             weight_decay=0.0624145,
         )
@@ -321,7 +320,7 @@ if __name__ == "__main__":
             args=training_args,
             compute_metrics=compute_metrics_fn,
         )
-        
+
         try:
             result = trainer.train()
         except Exception as e:
@@ -330,7 +329,7 @@ if __name__ == "__main__":
                 f=f"{trained_models_path}/model.pt",
             )
             raise e
-        # Write the model directory to a text file called current_model.txt 
+        # Write the model directory to a text file called current_model.txt
 
     elif model_choice == "xgb":
         from xgboost import XGBClassifier

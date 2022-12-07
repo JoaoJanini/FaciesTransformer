@@ -212,11 +212,11 @@ class FaciesModelEncoder(PreTrainedModel):
 
         # turn mask true into 1 and false into 0
         encoding_1 = self.embed_tokens_steps(input_ids)
-    
+
         encoding_1 = self.positional_encoding(encoding_1)
 
         output_encoder_1 = self.model_timestep(
-            encoding_1, mask = None, src_key_padding_mask=None
+            encoding_1, mask=None, src_key_padding_mask=None
         )
 
         channel_encoding = self.embed_tokens_channel(input_ids.transpose(-1, -2))
@@ -431,7 +431,6 @@ class FaciesModel(PreTrainedModel):
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(last_hidden_state=encoder_outputs[0])
 
-
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -632,9 +631,12 @@ class FaciesForClassification(PreTrainedModel):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
-        hidden_states = self.lm_head(encoder_outputs[0])
-        lm_logits = hidden_states
-        loss_fct = CrossEntropyLoss()
-        loss = loss_fct(lm_logits.view(-1, self.config.vocab_size), labels.view(-1))
+        lm_logits = self.lm_head(encoder_outputs[0])
 
-        return SequenceClassifierOutput(loss=loss, logits=lm_logits)
+        if labels is not None:
+            loss_fct = CrossEntropyLoss()
+            loss = loss_fct(lm_logits.view(-1, self.config.vocab_size), labels.view(-1))
+            return SequenceClassifierOutput(loss=loss, logits=lm_logits)
+
+        else:
+            return SequenceClassifierOutput(logits=lm_logits)

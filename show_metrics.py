@@ -15,6 +15,7 @@ from dataset.dataset import (
     get_lithology_numbers,
 )
 from datetime import datetime
+
 base_path = "/home/joao/code/tcc/seq2seq/data"
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 tcc_path = f"{base_path}/tcc/{timestamp}"
@@ -32,12 +33,12 @@ models_results = {
         "sep": " ",
         "lith_column": "prediction",
     },
-    # "seq2seq": {"facies_file": "facies_prediction.csv"},
+    "seq2seq": {"facies_file": "facies_prediction.csv"},
     "xgb": {
         "facies_file": "facies_prediction.csv",
         "lith_column": "FORCE_2020_LITHOFACIES_LITHOLOGY",
     },
-    # "seq2label": {"facies_file": "facies_prediction.csv"},
+    "seq2label": {"facies_file": "facies_prediction.csv"},
 }
 
 for model_name, model_info in models_results.items():
@@ -84,14 +85,8 @@ for model_name, model in models_data.items():
     print(predictions_df.shape)
 # pandas dataframe with metrics as columns and model_names as rows
 metrics_df = pd.DataFrame(
-    columns=[
-        "accuracy",
-        "precision",
-        "recall",
-        "f1",
-        "competition_score"
-    ],
-    index = list(models_data.keys()-{"y_true"}) ,
+    columns=["accuracy", "precision", "recall", "f1", "competition_score"],
+    index=list(models_data.keys() - {"y_true"}),
 )
 cms_path = f"{tcc_path}/confusion_matrices"
 os.mkdir(cms_path)
@@ -119,9 +114,7 @@ for model_name, model in models_data.items():
         labels=labels,
         average="macro",
     )
-    competition_score = score(
-        models_data["y_true"]["pred-index"], model["pred-index"]
-    )
+    competition_score = score(models_data["y_true"]["pred-index"], model["pred-index"])
 
     metrics_df.loc[model_name] = [accuracy, precision, recall, f1, competition_score]
 
@@ -131,7 +124,10 @@ for model_name, model in models_data.items():
 
     get_confusion_matrix(
         model_name,
-        models_data["y_true"]["pred-lith-name"], model["pred-lith-name"], labels, cms_path
+        models_data["y_true"]["pred-lith-name"],
+        model["pred-lith-name"],
+        labels,
+        cms_path,
     )
     # competition_score = utils.score = utils.get_metrics(
     #     models_data["y_true"]["regular"], model["regular"], labels
