@@ -99,7 +99,6 @@ for model_name, model in models_data.items():
     if model_name == "y_true":
         continue
 
-
     f1 = f1_score(
         y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
         model["predictions_df"]["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
@@ -134,7 +133,7 @@ for model_name, model in models_data.items():
     )
 
     score_by_well_df.loc[:,model["plot_title"]] = y_true_df.groupby("WELL").apply(
-        lambda x: accuracy_score(x["FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"], model["predictions_df"].loc[x.index]["FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"])
+        lambda x: score(x["FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"], model["predictions_df"].loc[x.index]["FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"])
     )
     # metrics = utils.get_metrics(
     #     y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"], model["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"], labels
@@ -165,8 +164,6 @@ for position, well in enumerate(wells):
     depth = current_well["DEPTH_MD"].values
     top_depth = max(depth)
     bottom_depth = min(depth)
-    accuracy_by_well_df.loc[well, "Total DEPTH"] = top_depth - bottom_depth
-    accuracy_by_well_df.loc[well, "Lith Diversity"] = current_well["FORCE_2020_LITHOFACIES_LITHOLOGY"].nunique()
 
     print(well)
 
@@ -179,8 +176,23 @@ for position, well in enumerate(wells):
         path=wells_paths,
     )
 
+metrics_per_lith_df = metrics_per_lith_df.style.apply(
+    lambda x: ["font-weight: bold" if v == x.max() else "" for v in x], axis=1
+)
+accuracy_by_well_df = accuracy_by_well_df.style.apply(
+    lambda x: ["font-weight: bold" if v == x.max() else "" for v in x], axis=1
+)
+score_by_well_df = score_by_well_df.style.apply(
+    lambda x: ["font-weight: bold" if v == x.min() else "" for v in x], axis=1
+)
 
-metrics_df.to_latex(f"{tcc_path}/metrics.tex", label="tab: Metricas ")
-metrics_per_lith_df.to_latex(f"{tcc_path}/metrics_per_lith.tex")
-accuracy_by_well_df.to_latex(f"{tcc_path}/accuracy_by_well.tex")
-score_by_well_df.to_latex(f"{tcc_path}/score_by_well.tex")
+# do the same for the metrics_df, but use min when comparing the competition score
+metrics_df.style.apply(
+    lambda x: ["font-weight: bold" if v == x.max() else "" for v in x], axis=1
+)
+
+
+metrics_df.to_latex(f"{tcc_path}/metrics.tex", label="tab:metricas-todos-pocos")
+metrics_per_lith_df.to_latex(f"{tcc_path}/metrics_per_lith.tex", label="tab:metricas-por-litologia")
+accuracy_by_well_df.to_latex(f"{tcc_path}/accuracy_by_well.tex", label="tab:acuracia-por-poco")
+score_by_well_df.to_latex(f"{tcc_path}/score_by_well.tex", label="tab:score-por-poco")

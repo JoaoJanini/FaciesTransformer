@@ -97,8 +97,13 @@ def get_metrics(y_trues, y_preds, labels):
 def score(y_true, y_pred):
     A = np.load("/home/joao/code/tcc/seq2seq/data/raw/penalty_matrix.npy")
     S = 0.0
+    if isinstance(y_true, pd.Series):
+        y_true = y_true.values
+    if isinstance(y_pred, pd.Series):
+        y_pred = y_pred.values
     y_true = y_true.astype(int)
     y_pred = y_pred.astype(int)
+
     for i in range(0, y_true.shape[0]):
         S -= A[y_true[i], y_pred[i]]
     return S / y_true.shape[0]
