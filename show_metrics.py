@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import pandas as pd
-from utils import makeplot
+from utils import makeplot, score, get_confusion_matrix, get_metrics, lith_code_to_index, lith_code_to_name, index_to_lith_code
 from utils import *
 import os
 import copy
@@ -15,6 +15,7 @@ from dataset.dataset import (
     get_lithology_numbers,
 )
 from datetime import datetime
+from copy import deepcopy
 
 base_path = "/home/joao/code/tcc/seq2seq/data"
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -26,19 +27,22 @@ models_results = {
         "facies_file": "test.csv",
         "sep": ";",
         "lith_column": "FORCE_2020_LITHOFACIES_LITHOLOGY",
+        "plot_title": "True Labels",
     },
     "olawale": {
         "predictions": f"{base_path}/predictions/olawale",
         "facies_file": "all.csv",
         "sep": " ",
         "lith_column": "prediction",
+        "plot_title": "Olawale's Model",
     },
-    "seq2seq": {"facies_file": "facies_prediction.csv"},
+    "seq2seq": {"facies_file": "facies_prediction.csv", "plot_title": "Encoder-Decoder Model"},
     "xgb": {
         "facies_file": "facies_prediction.csv",
         "lith_column": "FORCE_2020_LITHOFACIES_LITHOLOGY",
+        "plot_title": "XGBoost Model",
     },
-    "seq2label": {"facies_file": "facies_prediction.csv"},
+    "seq2label": {"facies_file": "facies_prediction.csv", "plot_title": "Encoder-Only Model"},
 }
 
 for model_name, model_info in models_results.items():
@@ -52,91 +56,103 @@ for model_name, model_info in models_results.items():
 
 os.mkdir(tcc_path)
 
+
 models_data = copy.deepcopy(models_results)
 labels = list(get_lithology_names().values())[1:]
 for model_name, model in models_data.items():
     predictions_df = pd.read_csv(
         f"{model['predictions']}/{model['facies_file']}", sep=model.get("sep", ",")
     )
-    facies_predictions = predictions_df[
+    predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY"] =  predictions_df[
         model.get("lith_column", "FORCE_2020_LITHOFACIES_LITHOLOGY")
     ]
+    if max(predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY"].values) < 20:
+        predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY"] = index_to_lith_code(predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY"])
 
-    if max(facies_predictions.values) < 20:
-        predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY"] = np.array(
-            [*map(get_index_to_lithology_number().get, facies_predictions.values)]
-        )
+    predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"] = lith_code_to_index(predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY"])
+    predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"] = lith_code_to_name(predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY"])
 
-    models_data[model_name]["pred-lith-code"] = np.array(
-        predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY"]
-    )
-    models_data[model_name]["pred-index"] = np.array(
-        [
-            *map(
-                get_lithology_numbers().get,
-                models_data[model_name]["pred-lith-code"],
-            )
-        ]
-    )
-    models_data[model_name]["pred-lith-name"] = np.array(
-        [*map(get_lithology_names().get, models_data[model_name]["pred-lith-code"])]
-    )
     models_data[model_name]["predictions_df"] = predictions_df
     print(predictions_df.shape)
+y_true_df = models_data["y_true"]["predictions_df"]
+
+# plot titles besides y_true
+plot_titles = [models_data[model]["plot_title"] for model in  list(models_data.keys() - {"y_true"})]
+# plot
 # pandas dataframe with metrics as columns and model_names as rows
 metrics_df = pd.DataFrame(
     columns=["accuracy", "precision", "recall", "f1", "competition_score"],
-    index=list(models_data.keys() - {"y_true"}),
+    index=plot_titles
 )
+
+metrics_per_lith_df = pd.DataFrame(
+    columns=labels, index=plot_titles
+)
+accuracy_by_well_df = pd.DataFrame(
+    columns=plot_titles, index=sorted(predictions_df["WELL"].unique())
+)
+score_by_well_df = deepcopy(accuracy_by_well_df)
+
 cms_path = f"{tcc_path}/confusion_matrices"
 os.mkdir(cms_path)
 for model_name, model in models_data.items():
     if model_name == "y_true":
         continue
+
+
     f1 = f1_score(
-        models_data["y_true"]["pred-lith-name"],
-        model["pred-lith-name"],
+        y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
+        model["predictions_df"]["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
         labels=labels,
         average="macro",
     )
     accuracy = accuracy_score(
-        models_data["y_true"]["pred-lith-name"], model["pred-lith-name"]
+        y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"], model["predictions_df"]["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"]
     )
     precision = precision_score(
-        models_data["y_true"]["pred-lith-name"],
-        model["pred-lith-name"],
+        y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
+        model["predictions_df"]["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
         labels=labels,
         average="macro",
     )
     recall = recall_score(
-        models_data["y_true"]["pred-lith-name"],
-        model["pred-lith-name"],
+        y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
+        model["predictions_df"]["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
         labels=labels,
         average="macro",
     )
-    competition_score = score(models_data["y_true"]["pred-index"], model["pred-index"])
 
-    metrics_df.loc[model_name] = [accuracy, precision, recall, f1, competition_score]
+    a = pd.crosstab(y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],model["predictions_df"]["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"])
+    metrics_per_lith_df.loc[model["plot_title"]] = a.max(axis=1)/a.sum(axis=1)
 
+    competition_score = score(y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"], model["predictions_df"]["FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"])
+
+    metrics_df.loc[model["plot_title"]] = [accuracy, precision, recall, f1, competition_score]
+
+    accuracy_by_well_df.loc[:,model["plot_title"]] = y_true_df.groupby("WELL").apply(
+        lambda x: accuracy_score(x["FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"], model["predictions_df"].loc[x.index]["FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"])
+    )
+
+    score_by_well_df.loc[:,model["plot_title"]] = y_true_df.groupby("WELL").apply(
+        lambda x: accuracy_score(x["FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"], model["predictions_df"].loc[x.index]["FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"])
+    )
     # metrics = utils.get_metrics(
-    #     models_data["y_true"]["pred-lith-name"], model["pred-lith-name"], labels
+    #     y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"], model["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"], labels
     # )
 
     get_confusion_matrix(
-        model_name,
-        models_data["y_true"]["pred-lith-name"],
-        model["pred-lith-name"],
+        model["plot_title"],
+        y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
+        model["predictions_df"]["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
         labels,
         cms_path,
     )
+
     # competition_score = utils.score = utils.get_metrics(
-    #     models_data["y_true"]["regular"], model["regular"], labels
+    #     y_true_df["regular"], model["regular"], labels
     # )
 
 
-metrics_df.to_markdown(f"{tcc_path}/metrics.md")
-
-y_true_df = models_data["y_true"]["predictions_df"]
 wells = y_true_df["WELL"].unique()
 total_wells = len(wells)
 wells_paths = f"{tcc_path}/wells_plots"
@@ -149,6 +165,9 @@ for position, well in enumerate(wells):
     depth = current_well["DEPTH_MD"].values
     top_depth = max(depth)
     bottom_depth = min(depth)
+    accuracy_by_well_df.loc[well, "Total DEPTH"] = top_depth - bottom_depth
+    accuracy_by_well_df.loc[well, "Lith Diversity"] = current_well["FORCE_2020_LITHOFACIES_LITHOLOGY"].nunique()
+
     print(well)
 
     makeplot(
@@ -159,3 +178,9 @@ for position, well in enumerate(wells):
         bottom_depth=bottom_depth,
         path=wells_paths,
     )
+
+
+metrics_df.to_latex(f"{tcc_path}/metrics.tex", label="tab: Metricas ")
+metrics_per_lith_df.to_latex(f"{tcc_path}/metrics_per_lith.tex")
+accuracy_by_well_df.to_latex(f"{tcc_path}/accuracy_by_well.tex")
+score_by_well_df.to_latex(f"{tcc_path}/score_by_well.tex")

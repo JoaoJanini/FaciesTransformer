@@ -4,7 +4,33 @@ import pandas as pd
 
 import torch
 import matplotlib.patches as mpatches
+from dataset.dataset import (
+    get_lithology_names,
+    get_index_to_lithology_number,
+    get_lithology_numbers,
+)
+def lith_code_to_index(lith_encoded_df):
+    indexed_facies = np.array(
+            [
+                *map(get_lithology_numbers().get, lith_encoded_df)
+            ]
+    )
+    return indexed_facies
 
+def lith_code_to_name(lith_encoded_df):
+    lith_names = np.array(
+            [
+                *map(get_lithology_names().get, lith_encoded_df)
+            ]
+    )
+    return lith_names
+def index_to_lith_code(indexed_facies):
+    lith_encoded_df = np.array(
+            [
+                *map(get_index_to_lithology_number().get, indexed_facies)
+            ]
+    )
+    return lith_encoded_df
 
 def create_missing_mask():
     def get_mask_batch2(self, tensor):
@@ -24,16 +50,15 @@ def create_missing_mask():
 
 
 def get_confusion_matrix(title, y_trues, y_preds, labels, path):
-    import matplotlib.pyplot as plt
     import seaborn as sn
-
+    import matplotlib
     confusion_matrix = metrics.confusion_matrix(
         y_trues, y_preds, labels=labels, normalize="true"
     )
     df_cm = pd.DataFrame(confusion_matrix, labels, labels)
     # colormap: see this and choose your more dear
     df_cm.drop(columns=["Basement"], index=["Basement"])
-    fig, ax = plt.subplots(figsize=(32.0, 32.0))
+    fig, ax = matplotlib.pyplot.subplots(figsize=(32.0, 32.0))
     # for label size
     sn.heatmap(
         df_cm, annot=True, fmt="g", annot_kws={"size": 16}, cmap="Oranges", ax=ax
@@ -41,9 +66,9 @@ def get_confusion_matrix(title, y_trues, y_preds, labels, path):
     ax.set_ylabel("Actual")
     ax.set_xlabel("Predicted")
     ax.set_title(f"{title}", fontsize=32)
-    plt.yticks(rotation=45)
+    matplotlib.pyplot.yticks(rotation=45)
     fig.show()
-    plt.show(block=False)
+    matplotlib.pyplot.show(block=False)
     fig.savefig(f"{path}/{title}.jpg")
 
     return confusion_matrix
@@ -102,16 +127,24 @@ lithology_numbers = {
 
 
 def makeplot(models, well_name, depth, top_depth, bottom_depth, path):
-    import matplotlib.pyplot as plt
+    import matplotlib
+    # matplotlib.use("pgf")
+    # matplotlib.rcParams.update({
+    #     "pgf.texsystem": "pdflatex",
+    #     'font.family': 'serif',
+    #     'text.usetex': True,
+    #     'pgf.rcfonts': False,
+    # })
 
-    fig, ax = plt.subplots(figsize=(15, 10))
+
+    fig, ax = matplotlib.pyplot.subplots(figsize=(15, 10))
 
     # Set up the plot axes
-    ax1 = plt.subplot2grid((1, 5), (0, 0), rowspan=1, colspan=1)
-    ax2 = plt.subplot2grid((1, 5), (0, 1), rowspan=1, colspan=1, sharey=ax1)
-    ax3 = plt.subplot2grid((1, 5), (0, 2), rowspan=1, colspan=1, sharey=ax1)
-    ax4 = plt.subplot2grid((1, 5), (0, 3), rowspan=1, colspan=1, sharey=ax1)
-    ax5 = plt.subplot2grid((1, 5), (0, 4), rowspan=1, colspan=1, sharey=ax1)
+    ax1 = matplotlib.pyplot.subplot2grid((1, 5), (0, 0), rowspan=1, colspan=1)
+    ax2 = matplotlib.pyplot.subplot2grid((1, 5), (0, 1), rowspan=1, colspan=1, sharey=ax1)
+    ax3 = matplotlib.pyplot.subplot2grid((1, 5), (0, 2), rowspan=1, colspan=1, sharey=ax1)
+    ax4 = matplotlib.pyplot.subplot2grid((1, 5), (0, 3), rowspan=1, colspan=1, sharey=ax1)
+    ax5 = matplotlib.pyplot.subplot2grid((1, 5), (0, 4), rowspan=1, colspan=1, sharey=ax1)
 
     for model_name, ax in zip(models, [ax1, ax2, ax3, ax4, ax5]):
         models[model_name]["ax"] = ax
@@ -135,8 +168,9 @@ def makeplot(models, well_name, depth, top_depth, bottom_depth, path):
         ax.set_xlim(0, 1)
         ax.xaxis.label.set_color("black")
         ax.spines["top"].set_edgecolor("black")
-        ax.set_xlabel(model_name)
-        ax.set_ylabel("Depth (m)")
+        ax.set_xlabel(model["plot_title"])
+        if ax == ax1:
+            ax.set_ylabel("Depth (m)")
         for key in lithology_numbers.keys():
             color = lithology_numbers[key]["color"]
             hatch = lithology_numbers[key]["hatch"]
@@ -155,10 +189,10 @@ def makeplot(models, well_name, depth, top_depth, bottom_depth, path):
     for ax in [ax1, ax2, ax3, ax4, ax5]:
         ax.set_ylim(bottom_depth, top_depth)
         ax.xaxis.set_label_position("top")
-        plt.setp(ax.get_xticklabels(), visible=False)
+        matplotlib.pyplot.setp(ax.get_xticklabels(), visible=False)
 
     for ax in [ax2, ax3, ax4, ax5]:
-        plt.setp(ax.get_yticklabels(), visible=False)
+        matplotlib.pyplot.setp(ax.get_yticklabels(), visible=False)
 
     patches = [
         mpatches.Patch(
@@ -178,8 +212,9 @@ def makeplot(models, well_name, depth, top_depth, bottom_depth, path):
         mode="expand",
     )
     fig.subplots_adjust(wspace=0.15)
+    fig.suptitle(f"{well_name} Lithology", fontsize=16)
     # remove / from well name to save as png
     well_name = well_name.replace("/", "_")
     fig.show()
-    plt.show(block=False)
+    matplotlib.pyplot.show(block=False)
     fig.savefig(f"{path}/{well_name}.jpg")
