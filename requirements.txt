@@ -20,3 +20,4 @@ hyperopt
 evaluate 
 xgboost
 pycaret
+openpyxl

@@ -1,14 +1,30 @@
 import os
+from models.seq2seq.configuration import FaciesConfig
+from dataset.dataset import WellsDataset
+from xgboost import XGBClassifier
 
-model_choice = "seq2label"
+from models.seq2seq.model import (
+    FaciesForConditionalGeneration,
+    FaciesForClassification,
+)
+import torch
+
+model_choice = "xgb"
 
 base_path = "/home/joao/code/tcc/seq2seq/data"
 models = {
     "seq2seq": {
         "folder_path": "seq2seq",
+        "model_type": "seq2seq",
     },
-    "xgb": {"folder_path": "xgb"},
-    "seq2label": {"folder_path": "seq2label"},
+    "xgb": {
+        "folder_path": "xgb",
+        "model_type": "label2label",
+    },
+    "seq2label": {
+        "folder_path": "seq2label",
+        "model_type": "seq2label",
+    },
 }
 
 
@@ -40,25 +56,45 @@ def get_last_model(models_directories):
         else:
             model_path = f"{trained_models_path}/model.pt"
     except IndexError:
-        trained_models_path, model_path, predictions_path, runs_path = get_last_model(sorted(models_directories)[:-1])
+        trained_models_path, model_path, predictions_path, runs_path = get_last_model(
+            sorted(models_directories)[:-1]
+        )
 
     return trained_models_path, model_path, predictions_path, runs_path
 
 
 folder_path = models[model_choice]["folder_path"]
-trained_models_path, model_path, predictions_path, runs_paths = get_last_model(os.listdir(f"{base_path}/trained_models/{folder_path}"))
-model_path = f"/home/joao/code/tcc/seq2seq/data/runs/seq2label/2022-12-07_06-53-12/checkpoint-1000/pytorch_model.bin"
+trained_models_path, model_path, predictions_path, runs_paths = get_last_model(
+    os.listdir(f"{base_path}/trained_models/{folder_path}")
+)
+model_path = f"/home/joao/code/tcc/seq2seq/data/runs/seq2seq/2022-12-11_04-58-13/checkpoint-3500/pytorch_model.bin"
+model_type = models[model_choice]["model_type"]
+
+
+
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+BATCH_SIZE = 256
+seed = 7
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+facies_transformer_config = FaciesConfig.from_pretrained(
+    f"{trained_models_path}/config"
+)
+test_dataset = WellsDataset(
+    dataset_type="test",
+    sequence_len=facies_transformer_config.sequence_len,
+    model_type=model_type,
+    pipeline_object_path=facies_transformer_config.pipeline_object_path,
+    feature_columns=facies_transformer_config.WIRELINE_LOGS_HEADER,
+    label_columns=facies_transformer_config.LABEL_COLUMN_HEADER,
+    output_len=facies_transformer_config.n_output_features,
+    categorical_features_columns=facies_transformer_config.CATEGORICAL_FEATURES,
+    categories_label_encoders=facies_transformer_config.categories_label_encoders,
+)
+
+
 if __name__ == "__main__":
     if model_choice == "seq2seq":
-        from transformers import Trainer, logging
-        from models.seq2seq.model import FaciesForConditionalGeneration
-        from models.seq2seq.configuration import FaciesConfig
-        import torch
-        from torch.utils.data import DataLoader
-        from dataset.dataset import WellsDataset
-        import numpy as np
 
-        DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         # read string from current_model.txt
         def collate_fn(batch):
             src_batch, tgt_batch = [], []
@@ -71,39 +107,11 @@ if __name__ == "__main__":
             model_input = {"input_ids": src_batch, "labels": tgt_batch}
             return model_input
 
-        facies_transformer_config = FaciesConfig.from_pretrained(
-            f"{trained_models_path}/config"
-        )
-
         facies_transformer = FaciesForConditionalGeneration(
             facies_transformer_config
         ).to(DEVICE)
 
         facies_transformer.load_state_dict(torch.load(model_path))
-
-        BATCH_SIZE = 128
-        SEQUENCE_LEN = 5
-        TRAINING_RATIO = 0.95
-        WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB", "SP"]
-        LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
-        CATEGORICAL_COLUMNS = ["FORMATION", "GROUP"]
-        train_dataset = WellsDataset(
-            dataset_type="train",
-            sequence_len=facies_transformer_config.sequence_len,
-            model_type="seq2seq",
-            feature_columns=WIRELINE_LOGS_HEADER,
-            label_columns=LABEL_COLUMN_HEADER,
-        )
-        test_dataset = WellsDataset(
-            dataset_type="test",
-            sequence_len=facies_transformer_config.sequence_len,
-            model_type="seq2seq",
-            feature_columns=WIRELINE_LOGS_HEADER,
-            label_columns=LABEL_COLUMN_HEADER,
-            scaler=train_dataset.scaler,
-            output_len=train_dataset.output_len,
-            categories_label_encoders=train_dataset.categories_label_encoders,
-        )
 
         test_loader = DataLoader(
             dataset=test_dataset,
@@ -111,6 +119,7 @@ if __name__ == "__main__":
             shuffle=False,
             collate_fn=collate_fn,
         )
+
 
         # Loop for generating the output of a sequence for all the data in the test dataloader using model.generate
 
@@ -123,23 +132,15 @@ if __name__ == "__main__":
                 pad_token_id=test_dataset.PAD_IDX,
                 eos_token_id=test_dataset.PAD_IDX,
                 num_return_sequences=1,
-                num_beams=3,
+                num_beams=7,
                 max_new_tokens=facies_transformer_config.sequence_len + 1,
             )
 
             decoded_labels = torch.cat((decoded_labels, outputs[:, 1:-1].flatten()))
 
-        from datasets import load_metric
-
-        metrics = dict()
-        accuracy_metric = load_metric("accuracy")
         labels = test_dataset.train_label.flatten().to(DEVICE)
         decoded_labels = decoded_labels[labels != 12]
         labels = labels[labels != 12]
-        metrics.update(
-            accuracy_metric.compute(predictions=decoded_labels, references=labels)
-        )
-
         wells_depth = test_dataset.df_position
         wells_depth["FORCE_2020_LITHOFACIES_LITHOLOGY"] = decoded_labels.cpu().numpy()
 
@@ -148,18 +149,6 @@ if __name__ == "__main__":
 
     elif model_choice == "seq2label":
 
-        from transformers import Trainer, logging
-        from models.seq2seq.model import (
-            FaciesForConditionalGeneration,
-            FaciesForClassification,
-        )
-        from models.seq2seq.configuration import FaciesConfig
-        import torch
-        from torch.utils.data import DataLoader
-        from dataset.dataset import WellsDataset
-        import numpy as np
-
-        DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         # read string from current_model.txt
         def collate_fn(batch):
             src_batch, tgt_batch = [], []
@@ -172,38 +161,11 @@ if __name__ == "__main__":
             model_input = {"input_ids": src_batch, "labels": tgt_batch}
             return model_input
 
-        facies_transformer_config = FaciesConfig.from_pretrained(
-            f"{trained_models_path}/config"
-        )
-
         facies_transformer = FaciesForClassification(facies_transformer_config).to(
             DEVICE
         )
         facies_transformer.load_state_dict(torch.load(model_path))
 
-        BATCH_SIZE = 128
-        SEQUENCE_LEN = 5
-        TRAINING_RATIO = 0.95
-        WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB", "SP"]
-        LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
-        CATEGORICAL_COLUMNS = ["FORMATION", "GROUP"]
-        train_dataset = WellsDataset(
-            dataset_type="train",
-            sequence_len=facies_transformer_config.sequence_len,
-            model_type="seq2label",
-            feature_columns=WIRELINE_LOGS_HEADER,
-            label_columns=LABEL_COLUMN_HEADER,
-        )
-        test_dataset = WellsDataset(
-            dataset_type="test",
-            sequence_len=facies_transformer_config.sequence_len,
-            model_type="seq2label",
-            feature_columns=WIRELINE_LOGS_HEADER,
-            label_columns=LABEL_COLUMN_HEADER,
-            scaler=train_dataset.scaler,
-            output_len=train_dataset.output_len,
-            categories_label_encoders=train_dataset.categories_label_encoders,
-        )
 
         test_loader = DataLoader(
             dataset=test_dataset,
@@ -211,6 +173,7 @@ if __name__ == "__main__":
             shuffle=False,
             collate_fn=collate_fn,
         )
+
 
         # Loop for generating the output of a sequence for all the data in the test dataloader using model.generate
 
@@ -222,16 +185,6 @@ if __name__ == "__main__":
                 (decoded_labels, outputs[0].argmax(-1).flatten())
             )
 
-        from datasets import load_metric
-
-        metrics = dict()
-        accuracy_metric = load_metric("accuracy")
-        labels = test_dataset.train_label.flatten().to(DEVICE)
-        decoded_labels = decoded_labels[labels != 12]
-        labels = labels[labels != 12]
-        metrics.update(
-            accuracy_metric.compute(predictions=decoded_labels, references=labels)
-        )
         wells_depth = test_dataset.df_position
         wells_depth.loc[
             :, ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
@@ -242,21 +195,6 @@ if __name__ == "__main__":
 
         # Write the model directory to a text file called current_model.txt
     elif model_choice == "xgb":
-
-        from xgboost import XGBClassifier
-        from dataset.dataset import WellsDataset
-        import os
-
-        seed = 7
-        WIRELINE_LOGS_HEADER = ["GR", "NPHI", "RSHA", "DTC", "RHOB", "SP"]
-        LABEL_COLUMN_HEADER = ["FORCE_2020_LITHOFACIES_LITHOLOGY"]
-
-        test_dataset = WellsDataset(
-            dataset_type="test",
-            model_type="label2label",
-            feature_columns=WIRELINE_LOGS_HEADER,
-            label_columns=LABEL_COLUMN_HEADER,
-        )
 
         model = XGBClassifier()
         model.load_model(f"{trained_models_path}/model.json")

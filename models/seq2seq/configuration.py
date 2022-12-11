@@ -106,6 +106,11 @@ class FaciesConfig(PretrainedConfig):
         is_encoder_decoder=True,
         decoder_start_token_id=0,
         forced_eos_token_id=2,
+        pipeline_object_path="",
+        WIRELINE_LOGS_HEADER=["GR"],
+        CATEGORICAL_FEATURES=[],
+        LABEL_COLUMN_HEADER=[],
+        categories_label_encoders={},
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -134,6 +139,17 @@ class FaciesConfig(PretrainedConfig):
             scale_embedding  # scale factor will be sqrt(d_model) if True
         )
         self.num_labels = num_labels
+        self.pipeline_object_path = pipeline_object_path
+        self.WIRELINE_LOGS_HEADER = WIRELINE_LOGS_HEADER
+        self.CATEGORICAL_FEATURES = CATEGORICAL_FEATURES
+        self.LABEL_COLUMN_HEADER = LABEL_COLUMN_HEADER
+        self.categories_label_encoders = categories_label_encoders
+        self.pad_token_id = pad_token_id
+        self.bos_token_id = bos_token_id
+        self.eos_token_id = eos_token_id
+        self.is_encoder_decoder = is_encoder_decoder
+        self.decoder_start_token_id = decoder_start_token_id
+        self.forced_eos_token_id = forced_eos_token_id
 
         super().__init__(
             num_labels=self.num_labels,

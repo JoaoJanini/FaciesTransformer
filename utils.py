@@ -9,28 +9,24 @@ from dataset.dataset import (
     get_index_to_lithology_number,
     get_lithology_numbers,
 )
+
+
 def lith_code_to_index(lith_encoded_df):
-    indexed_facies = np.array(
-            [
-                *map(get_lithology_numbers().get, lith_encoded_df)
-            ]
-    )
+    indexed_facies = np.array([*map(get_lithology_numbers().get, lith_encoded_df)])
     return indexed_facies
 
+
 def lith_code_to_name(lith_encoded_df):
-    lith_names = np.array(
-            [
-                *map(get_lithology_names().get, lith_encoded_df)
-            ]
-    )
+    lith_names = np.array([*map(get_lithology_names().get, lith_encoded_df)])
     return lith_names
+
+
 def index_to_lith_code(indexed_facies):
     lith_encoded_df = np.array(
-            [
-                *map(get_index_to_lithology_number().get, indexed_facies)
-            ]
+        [*map(get_index_to_lithology_number().get, indexed_facies)]
     )
     return lith_encoded_df
+
 
 def create_missing_mask():
     def get_mask_batch2(self, tensor):
@@ -52,6 +48,7 @@ def create_missing_mask():
 def get_confusion_matrix(title, y_trues, y_preds, labels, path):
     import seaborn as sn
     import matplotlib
+
     confusion_matrix = metrics.confusion_matrix(
         y_trues, y_preds, labels=labels, normalize="true"
     )
@@ -133,6 +130,7 @@ lithology_numbers = {
 
 def makeplot(models, well_name, depth, top_depth, bottom_depth, path):
     import matplotlib
+
     # matplotlib.use("pgf")
     # matplotlib.rcParams.update({
     #     "pgf.texsystem": "pdflatex",
@@ -141,15 +139,22 @@ def makeplot(models, well_name, depth, top_depth, bottom_depth, path):
     #     'pgf.rcfonts': False,
     # })
 
-
     fig, ax = matplotlib.pyplot.subplots(figsize=(15, 10))
 
     # Set up the plot axes
     ax1 = matplotlib.pyplot.subplot2grid((1, 5), (0, 0), rowspan=1, colspan=1)
-    ax2 = matplotlib.pyplot.subplot2grid((1, 5), (0, 1), rowspan=1, colspan=1, sharey=ax1)
-    ax3 = matplotlib.pyplot.subplot2grid((1, 5), (0, 2), rowspan=1, colspan=1, sharey=ax1)
-    ax4 = matplotlib.pyplot.subplot2grid((1, 5), (0, 3), rowspan=1, colspan=1, sharey=ax1)
-    ax5 = matplotlib.pyplot.subplot2grid((1, 5), (0, 4), rowspan=1, colspan=1, sharey=ax1)
+    ax2 = matplotlib.pyplot.subplot2grid(
+        (1, 5), (0, 1), rowspan=1, colspan=1, sharey=ax1
+    )
+    ax3 = matplotlib.pyplot.subplot2grid(
+        (1, 5), (0, 2), rowspan=1, colspan=1, sharey=ax1
+    )
+    ax4 = matplotlib.pyplot.subplot2grid(
+        (1, 5), (0, 3), rowspan=1, colspan=1, sharey=ax1
+    )
+    ax5 = matplotlib.pyplot.subplot2grid(
+        (1, 5), (0, 4), rowspan=1, colspan=1, sharey=ax1
+    )
 
     for model_name, ax in zip(models, [ax1, ax2, ax3, ax4, ax5]):
         models[model_name]["ax"] = ax
