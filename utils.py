@@ -1,86 +1,73 @@
 from sklearn import metrics
 import numpy as np
 import pandas as pd
-import seaborn as sn
-import matplotlib.pyplot as plt
 
-from transformers import TrainingArguments, Trainer, logging
-import torchmetrics
-import math
-import time
-from torch import nn, optim
-from torch.optim import Adam
 import torch
-from torch.utils.data import DataLoader
-from dataset.dataset import WellsDataset
-from torch.utils.data import random_split
-from typing import List
-from datetime import datetime
-from transformers import Trainer, TrainingArguments
-from datasets import load_dataset, load_metric
-from ray.tune.schedulers import PopulationBasedTraining
-from ray.tune.search.hyperopt import HyperOptSearch
-from ray import tune
-
-def get_lithology_numbers():
-    lithology_numbers = {
-        0: 0,
-        30000: 1,
-        65030: 2,
-        65000: 3,
-        80000: 4,
-        74000: 5,
-        70000: 6,
-        70032: 7,
-        88000: 8,
-        86000: 9,
-        99000: 10,
-        90000: 11,
-        93000: 12,
-    }
-    return lithology_numbers
+import matplotlib.patches as mpatches
+from dataset.dataset import (
+    get_lithology_names,
+    get_index_to_lithology_number,
+    get_lithology_numbers,
+)
 
 
-def get_lithology_names():
-    # Define special symbols and indices
-    lithology_names = {
-        0: "<pad>",
-        30000: "Sandstone",
-        65030: "Sandstone/Shale",
-        65000: "Shale",
-        80000: "Marl",
-        74000: "Dolomite",
-        70000: "Limestone",
-        70032: "Chalk",
-        88000: "Halite",
-        86000: "Anhydrite",
-        99000: "Tuff",
-        90000: "Coal",
-        93000: "Basement",
-    }
-    return lithology_names
+def lith_code_to_index(lith_encoded_df):
+    indexed_facies = np.array([*map(get_lithology_numbers().get, lith_encoded_df)])
+    return indexed_facies
 
 
-def get_confusion_matrix(y_trues, y_preds, labels):
+def lith_code_to_name(lith_encoded_df):
+    lith_names = np.array([*map(get_lithology_names().get, lith_encoded_df)])
+    return lith_names
+
+
+def index_to_lith_code(indexed_facies):
+    lith_encoded_df = np.array(
+        [*map(get_index_to_lithology_number().get, indexed_facies)]
+    )
+    return lith_encoded_df
+
+
+def create_missing_mask():
+    def get_mask_batch2(self, tensor):
+        mask = torch.zeros(tensor.shape[0], tensor.shape[1], tensor.shape[1])
+        mask = tensor.unsqueeze(1) & tensor.unsqueeze(2)
+        return mask
+
+    step_wise_attention_mask = torch.isnan(input_ids[:, :, n_features - 1])
+
+    step_wise_attention_mask = ~self.get_mask_batch2(~step_wise_attention_mask)
+    step_wise_attention_mask = step_wise_attention_mask.unsqueeze(1).expand(
+        -1, num_heads, -1, -1
+    )
+    step_wise_attention_mask = step_wise_attention_mask.reshape(
+        -1, sequence_len, sequence_len
+    )
+
+
+def get_confusion_matrix(title, y_trues, y_preds, labels, path):
+    import seaborn as sn
+    import matplotlib
+
     confusion_matrix = metrics.confusion_matrix(
         y_trues, y_preds, labels=labels, normalize="true"
     )
     df_cm = pd.DataFrame(confusion_matrix, labels, labels)
     # colormap: see this and choose your more dear
-    empty_columns = list(df_cm.columns[(df_cm == 0).all()])
-    df_cm = df_cm[[c for c in df_cm if c not in empty_columns] + empty_columns]
-    sn.set(font_scale=1.4)  # for label size
-    sn.set(rc={"figure.figsize": (32.0, 32.0)})
-    sn.set()
+    df_cm.drop(columns=["Basement"], index=["Basement"])
+    fig, ax = matplotlib.pyplot.subplots(figsize=(32.0, 32.0))
+    # for label size
     sn.heatmap(
-        df_cm, annot=True, fmt="g", annot_kws={"size": 16}, cmap="Oranges"
+        df_cm, annot=True, fmt="g", annot_kws={"size": 16}, cmap="Oranges", ax=ax
     )  # font size
-    plt.ylabel("Actual")
-    plt.xlabel("Predicted")
-    plt.yticks(rotation=45)
-    plt.title("Confusion Matrix for Lithology Classification", fontsize=32)
+    ax.set_ylabel("Actual")
+    ax.set_xlabel("Predicted")
+    ax.set_title(f"{title}", fontsize=32)
+    matplotlib.pyplot.yticks(rotation=45)
+    fig.show()
+    matplotlib.pyplot.show(block=False)
+    fig.savefig(f"{path}/{title}.jpg")
 
-    plt.show()
     return confusion_matrix
 
 
@@ -94,7 +81,9 @@ def f1_score(y_trues, y_preds, labels):
 def get_metrics(y_trues, y_preds, labels):
     from sklearn.metrics import classification_report
 
-    print(classification_report(y_trues, y_preds, labels=labels))
+    cr = classification_report(y_trues, y_preds, labels=labels)
+    print(cr)
+    return cr
 
 
 # Get the confusion matrix from y_trues and y_preds
@@ -103,194 +92,139 @@ def get_metrics(y_trues, y_preds, labels):
 
 
 def score(y_true, y_pred):
-    A = np.load("/home/joao/code/tcc/seq2seq/data/penalty_matrix.npy")
+    A = np.load("/home/joao/code/tcc/seq2seq/data/raw/penalty_matrix.npy")
     S = 0.0
+    if isinstance(y_true, pd.Series):
+        y_true = y_true.values
+    if isinstance(y_pred, pd.Series):
+        y_pred = y_pred.values
     y_true = y_true.astype(int)
     y_pred = y_pred.astype(int)
+
     for i in range(0, y_true.shape[0]):
         S -= A[y_true[i], y_pred[i]]
     return S / y_true.shape[0]
 
 
-# https://github.com/andymcdgeo/Petrophysics-Python-Series/blob/master/14%20-%20Displaying%20Lithology%20Data.ipynb
+lithology_numbers = {
+    30000: {"lith": "Sandstone", "lith_num": 1, "hatch": "..", "color": "#ffff00"},
+    65030: {
+        "lith": "Sandstone/Shale",
+        "lith_num": 2,
+        "hatch": "-.",
+        "color": "#ffe119",
+    },
+    65000: {"lith": "Shale", "lith_num": 3, "hatch": "--", "color": "#bebebe"},
+    80000: {"lith": "Marl", "lith_num": 4, "hatch": "", "color": "#7cfc00"},
+    74000: {"lith": "Dolomite", "lith_num": 5, "hatch": "-/", "color": "#8080ff"},
+    70000: {"lith": "Limestone", "lith_num": 6, "hatch": "+", "color": "#80ffff"},
+    70032: {"lith": "Chalk", "lith_num": 7, "hatch": "..", "color": "#80ffff"},
+    88000: {"lith": "Halite", "lith_num": 8, "hatch": "x", "color": "#7ddfbe"},
+    86000: {"lith": "Anhydrite", "lith_num": 9, "hatch": "", "color": "#ff80ff"},
+    99000: {"lith": "Tuff", "lith_num": 10, "hatch": "||", "color": "#ff8c00"},
+    90000: {"lith": "Coal", "lith_num": 11, "hatch": "", "color": "black"},
+    93000: {"lith": "Basement", "lith_num": 12, "hatch": "-|", "color": "#ef138a"},
+}
+# REDO THE FOLLOWING CODE SO THAT IT PLOTS ON LITHOFACIE TRACK FOR EACH MODEL PREDCITION, AND ONE FOR THE ACTUAL PREDICTION. Dont plot thhe GR, NPHI and RHOB tracks. Just the lithofacies track.
 
 
-def make_plot_facies_only(well, lithology_numbers, plot_position, total_wells):
-    well_name = well["WELL"].unique()[0]
-    top_depth = max(well.DEPTH_MD)
-    bottom_depth = min(well.DEPTH_MD)
-    row = plot_position // 4
-    col = plot_position % 4
+def makeplot(models, well_name, depth, top_depth, bottom_depth, path):
+    import matplotlib
+
+    # matplotlib.use("pgf")
+    # matplotlib.rcParams.update({
+    #     "pgf.texsystem": "pdflatex",
+    #     'font.family': 'serif',
+    #     'text.usetex': True,
+    #     'pgf.rcfonts': False,
+    # })
+
+    fig, ax = matplotlib.pyplot.subplots(figsize=(15, 10))
+
     # Set up the plot axes
-    ax = plt.subplot2grid((3, 4), (row, col), rowspan=1, colspan=1)
-
-    # As our curve scales will be detached from the top of the track,
-    # this code adds the top border back in without dealing with splines
-    ax13 = ax.twiny()
-    ax13.xaxis.set_visible(False)
-
-    # Lithology track
-    ax.plot(
-        well["FORCE_2020_LITHOFACIES_LITHOLOGY"],
-        well["DEPTH_MD"],
-        color="black",
-        linewidth=0.5,
+    ax1 = matplotlib.pyplot.subplot2grid((1, 5), (0, 0), rowspan=1, colspan=1)
+    ax2 = matplotlib.pyplot.subplot2grid(
+        (1, 5), (0, 1), rowspan=1, colspan=1, sharey=ax1
     )
-    ax.set_xlabel(well_name)
-    ax.set_xlim(0, 1)
-    ax.xaxis.label.set_color("black")
-    ax.tick_params(axis="x", colors="black")
-    ax.spines["top"].set_edgecolor("black")
+    ax3 = matplotlib.pyplot.subplot2grid(
+        (1, 5), (0, 2), rowspan=1, colspan=1, sharey=ax1
+    )
+    ax4 = matplotlib.pyplot.subplot2grid(
+        (1, 5), (0, 3), rowspan=1, colspan=1, sharey=ax1
+    )
+    ax5 = matplotlib.pyplot.subplot2grid(
+        (1, 5), (0, 4), rowspan=1, colspan=1, sharey=ax1
+    )
 
-    for key in lithology_numbers.keys():
-        color = lithology_numbers[key]["color"]
-        hatch = lithology_numbers[key]["hatch"]
-        ax.fill_betweenx(
-            well["DEPTH_MD"],
-            0,
-            well["FORCE_2020_LITHOFACIES_LITHOLOGY"],
-            where=(well["FORCE_2020_LITHOFACIES_LITHOLOGY"] == key),
-            facecolor=color,
-            hatch=hatch,
-        )
-
-    ax.set_xticks([0, 1])
-
-    # Common functions for setting up the plot can be extracted into
-    # a for loop. This saves repeating code.
-    ax.set_ylim(bottom_depth, top_depth)
-    ax.grid(which="major", color="lightgrey", linestyle="-")
-    ax.xaxis.set_ticks_position("bottom")
-    ax.xaxis.set_label_position("top")
-    ax.spines["top"].set_position(("axes", 1.02))
-
-    return ax
-
-
-def makeplot(well, lithology_numbers):
-    fig, ax = plt.subplots(figsize=(15, 10))
-    top_depth = max(well.DEPTH_MD)
-    bottom_depth = min(well.DEPTH_MD)
-
-    # Set up the plot axes
-    ax1 = plt.subplot2grid((1, 3), (0, 0), rowspan=1, colspan=1)
-    ax2 = plt.subplot2grid((1, 3), (0, 1), rowspan=1, colspan=1, sharey=ax1)
-    ax3 = ax2.twiny()  # Twins the y-axis for the density track with the neutron track
-    ax4 = plt.subplot2grid((1, 3), (0, 2), rowspan=1, colspan=1, sharey=ax1)
+    for model_name, ax in zip(models, [ax1, ax2, ax3, ax4, ax5]):
+        models[model_name]["ax"] = ax
 
     # As our curve scales will be detached from the top of the track,
     # this code adds the top border back in without dealing with splines
-    ax10 = ax1.twiny()
-    ax10.xaxis.set_visible(False)
-    ax11 = ax2.twiny()
-    ax11.xaxis.set_visible(False)
-    ax13 = ax4.twiny()
-    ax13.xaxis.set_visible(False)
 
-    # Gamma Ray track
-    ax1.plot(well["GR"], well["DEPTH_MD"], color="green", linewidth=0.5)
-    ax1.set_xlabel("Gamma")
-    ax1.xaxis.label.set_color("green")
-    ax1.set_xlim(0, 200)
-    ax1.set_ylabel("Depth (m)")
-    ax1.tick_params(axis="x", colors="green")
-    ax1.spines["top"].set_edgecolor("green")
-    ax1.title.set_color("green")
-    ax1.set_xticks([0, 50, 100, 150, 200])
+    for model_name, model in models.items():
+        ax = model["ax"]
+        well = model["predictions_df"].loc[
+            (model["predictions_df"]["WELL"] == well_name)
+            | (model["predictions_df"]["WELL"] == well_name.replace(" ", ""))
+        ][["WELL", "DEPTH_MD", "FORCE_2020_LITHOFACIES_LITHOLOGY"]]
 
-    # Density track
-    ax2.plot(well["RHOB"], well["DEPTH_MD"], color="red", linewidth=0.5)
-    ax2.set_xlabel("Density")
-    ax2.set_xlim(1.95, 2.95)
-    ax2.xaxis.label.set_color("red")
-    ax2.tick_params(axis="x", colors="red")
-    ax2.spines["top"].set_edgecolor("red")
-    ax2.set_xticks([1.95, 2.45, 2.95])
-
-    # Neutron track placed ontop of density track
-    ax3.plot(well["NPHI"], well["DEPTH_MD"], color="blue", linewidth=0.5)
-    ax3.set_xlabel("Neutron")
-    ax3.xaxis.label.set_color("blue")
-    ax3.set_xlim(0.45, -0.15)
-    ax3.tick_params(axis="x", colors="blue")
-    ax3.spines["top"].set_position(("axes", 1.08))
-    ax3.spines["top"].set_visible(True)
-    ax3.spines["top"].set_edgecolor("blue")
-    ax3.set_xticks([0.45, 0.15, -0.15])
-
-    # Lithology track
-    ax4.plot(well["LITHOLOGY"], well["DEPTH_MD"], color="black", linewidth=0.5)
-    ax4.set_xlabel("Lithology")
-    ax4.set_xlim(0, 1)
-    ax4.xaxis.label.set_color("black")
-    ax4.tick_params(axis="x", colors="black")
-    ax4.spines["top"].set_edgecolor("black")
-
-    for key in lithology_numbers.keys():
-        color = lithology_numbers[key]["color"]
-        hatch = lithology_numbers[key]["hatch"]
-        ax4.fill_betweenx(
-            well["DEPTH_MD"],
-            0,
-            well["LITHOLOGY"],
-            where=(well["LITHOLOGY"] == key),
-            facecolor=color,
-            hatch=hatch,
+        ax.plot(
+            well["FORCE_2020_LITHOFACIES_LITHOLOGY"],
+            depth,
+            color="black",
+            linewidth=0.5,
         )
-
-    ax4.set_xticks([0, 1])
+        ax.set_xlim(0, 1)
+        ax.xaxis.label.set_color("black")
+        ax.spines["top"].set_edgecolor("black")
+        ax.set_xlabel(model["plot_title"])
+        if ax == ax1:
+            ax.set_ylabel("Depth (m)")
+        for key in lithology_numbers.keys():
+            color = lithology_numbers[key]["color"]
+            hatch = lithology_numbers[key]["hatch"]
+            ax.fill_betweenx(
+                depth,
+                0,
+                well["FORCE_2020_LITHOFACIES_LITHOLOGY"],
+                where=(well["FORCE_2020_LITHOFACIES_LITHOLOGY"] == key),
+                facecolor=color,
+                hatch=hatch,
+            )
+    #############################################################################################################
 
     # Common functions for setting up the plot can be extracted into
     # a for loop. This saves repeating code.
-    for ax in [ax1, ax2, ax4]:
+    for ax in [ax1, ax2, ax3, ax4, ax5]:
         ax.set_ylim(bottom_depth, top_depth)
-        ax.grid(which="major", color="lightgrey", linestyle="-")
-        ax.xaxis.set_ticks_position("top")
         ax.xaxis.set_label_position("top")
-        ax.spines["top"].set_position(("axes", 1.02))
+        matplotlib.pyplot.setp(ax.get_xticklabels(), visible=False)
 
-    for ax in [ax2, ax3, ax4]:
-        plt.setp(ax.get_yticklabels(), visible=False)
+    for ax in [ax2, ax3, ax4, ax5]:
+        matplotlib.pyplot.setp(ax.get_yticklabels(), visible=False)
 
-    plt.tight_layout()
+    patches = [
+        mpatches.Patch(
+            facecolor=lithology_numbers[key]["color"],
+            hatch=lithology_numbers[key]["hatch"],
+            label=lithology_numbers[key]["lith"],
+        )
+        for key in lithology_numbers.keys()
+    ]
+
+    # user legend_fig as legend to the main plot
+    ax5.legend(
+        handles=patches,
+        bbox_to_anchor=(1.05, 1),
+        loc="upper left",
+        borderaxespad=0.0,
+        mode="expand",
+    )
     fig.subplots_adjust(wspace=0.15)
-
-
-def plot_facies(data):
-
-    ## https://www.linkedin.com/pulse/pda-series-2-facies-classification-from-well-logs-yohanes-nuwara
-    # Display logs with facies
-    logs = data.columns[1:]
-    rows, cols = 1, 5
-    fig, ax = plt.subplots(nrows=rows, ncols=cols, figsize=(12, 6), sharey=True)
-
-    plt.suptitle("WELL F02-1", size=15)
-    for i in range(cols):
-        if i < cols - 1:
-            ax[i].plot(data[logs[i]], data.DEPTH, color="b", lw=0.5)
-            ax[i].set_title("%s" % logs[i])
-            ax[i].minorticks_on()
-            ax[i].grid(which="major", linestyle="-", linewidth="0.5", color="lime")
-            ax[i].grid(which="minor", linestyle=":", linewidth="0.5", color="black")
-            ax[i].set_ylim(max(data.DEPTH), min(data.DEPTH))
-        elif i == cols - 1:
-            F = np.vstack((facies, facies)).T
-            ax[i].imshow(
-                F, aspect="auto", extent=[0, 1, max(data.DEPTH), min(data.DEPTH)]
-            )
-            ax[i].set_title("FACIES")
-
-
-
-
-def collate_fn(batch):
-    src_batch, tgt_batch = [], []
-    for src_sample, tgt_sample in batch:
-        tgt_batch.append(tgt_sample)
-        src_batch.append(src_sample)
-
-    src_batch = torch.stack(src_batch)
-    tgt_batch = torch.stack(tgt_batch)
-
-    model_input = {"input_ids": src_batch, "labels": tgt_batch}
-    return model_input
+    fig.suptitle(f"{well_name} Lithology", fontsize=16)
+    # remove / from well name to save as png
+    well_name = well_name.replace("/", "_")
+    fig.show()
+    matplotlib.pyplot.show(block=False)
+    fig.savefig(f"{path}/{well_name}.jpg")

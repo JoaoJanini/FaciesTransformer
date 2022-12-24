@@ -1,87 +1,238 @@
 import torch
-import utils
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-
-from utils import makeplot, make_plot_facies_only
-
-run_path = "/home/joao/code/tcc/seq2seq/saved_models/2022-11-23_02-14-14"
-facies_prediction = pd.read_csv(f"{run_path}/facies_prediction.csv", sep=",")
-facies = pd.read_csv(f"{run_path}/facies.csv", sep=",")
-
-y_pred_decoded = np.array(facies_prediction["FORCE_2020_LITHOFACIES_LITHOLOGY"])
-y_true_decoded = np.array(facies["FORCE_2020_LITHOFACIES_LITHOLOGY"])
-y_pred_decoded_lith_names = np.array(
-    [*map(utils.get_lithology_names().get, y_pred_decoded)]
+from utils import (
+    makeplot,
+    score,
+    get_confusion_matrix,
+    get_metrics,
+    lith_code_to_index,
+    lith_code_to_name,
+    index_to_lith_code,
 )
-y_true_decoded_lith_names = np.array(
-    [*map(utils.get_lithology_names().get, y_true_decoded)]
+from utils import *
+import os
+import copy
+from sklearn.metrics import f1_score
+from sklearn.metrics import recall_score
+from sklearn.metrics import precision_score
+from sklearn.metrics import accuracy_score
+from dataset.dataset import (
+    get_lithology_names,
+    get_index_to_lithology_number,
+    get_lithology_numbers,
 )
-labels = list(utils.get_lithology_names().values())[1:]
-# utils.get_lithology_numbers to map index to label in both y_true and y_pred
-utils.get_confusion_matrix(y_true_decoded_lith_names, y_pred_decoded_lith_names, labels)
-utils.get_metrics(y_true_decoded_lith_names, y_pred_decoded_lith_names, labels)
-# print(utils.score(y_true, y_pred))
+from datetime import datetime
+from copy import deepcopy
 
-lithology_numbers = {
-    30000: {"lith": "Sandstone", "lith_num": 1, "hatch": "..", "color": "#ffff00"},
-    65030: {
-        "lith": "Sandstone/Shale",
-        "lith_num": 2,
-        "hatch": "-.",
-        "color": "#ffe119",
+base_path = "/home/joao/code/tcc/seq2seq/data"
+timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+tcc_path = f"{base_path}/tcc/{timestamp}"
+
+models_results = {
+    "y_true": {
+        "predictions": f"{base_path}/raw",
+        "facies_file": "test.csv",
+        "sep": ";",
+        "lith_column": "FORCE_2020_LITHOFACIES_LITHOLOGY",
+        "plot_title": "True Labels",
     },
-    65000: {"lith": "Shale", "lith_num": 3, "hatch": "--", "color": "#bebebe"},
-    80000: {"lith": "Marl", "lith_num": 4, "hatch": "", "color": "#7cfc00"},
-    74000: {"lith": "Dolomite", "lith_num": 5, "hatch": "-/", "color": "#8080ff"},
-    70000: {"lith": "Limestone", "lith_num": 6, "hatch": "+", "color": "#80ffff"},
-    70032: {"lith": "Chalk", "lith_num": 7, "hatch": "..", "color": "#80ffff"},
-    88000: {"lith": "Halite", "lith_num": 8, "hatch": "x", "color": "#7ddfbe"},
-    86000: {"lith": "Anhydrite", "lith_num": 9, "hatch": "", "color": "#ff80ff"},
-    99000: {"lith": "Tuff", "lith_num": 10, "hatch": "||", "color": "#ff8c00"},
-    90000: {"lith": "Coal", "lith_num": 11, "hatch": "", "color": "black"},
-    93000: {"lith": "Basement", "lith_num": 12, "hatch": "-|", "color": "#ef138a"},
+    "olawale": {
+        "predictions": f"{base_path}/predictions/olawale",
+        "facies_file": "all.csv",
+        "sep": " ",
+        "lith_column": "prediction",
+        "plot_title": "Olawale's Model",
+    },
+    "seq2seq": {
+        "facies_file": "facies_prediction.csv",
+        "plot_title": "Encoder-Decoder Model",
+    },
+    "xgb": {
+        "facies_file": "facies_prediction.csv",
+        "lith_column": "FORCE_2020_LITHOFACIES_LITHOLOGY",
+        "plot_title": "XGBoost Model",
+    },
+    "seq2label": {
+        "facies_file": "facies_prediction.csv",
+        "plot_title": "Encoder-Only Model",
+    },
 }
 
-# plt.show()
-axes = []
-fig, ax_master = plt.subplots(figsize=(30, 20))
-wells = facies_prediction["WELL"].unique()
+for model_name, model_info in models_results.items():
+    if model_info.get("predictions", "") == "":
+        models_directories = os.listdir(f"{base_path}/predictions/{model_name}")
+        last_model = sorted(models_directories)[-1]
+        for directory in ["trained_models", "predictions", "runs"]:
+            models_results[model_name][
+                directory
+            ] = f"{base_path}/{directory}/{model_name}/{last_model}"
+
+os.mkdir(tcc_path)
+
+
+models_data = copy.deepcopy(models_results)
+labels = list(get_lithology_names().values())[1:]
+for model_name, model in models_data.items():
+    predictions_df = pd.read_csv(
+        f"{model['predictions']}/{model['facies_file']}", sep=model.get("sep", ",")
+    )
+    predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY"] = predictions_df[
+        model.get("lith_column", "FORCE_2020_LITHOFACIES_LITHOLOGY")
+    ]
+    if max(predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY"].values) < 20:
+        predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY"] = index_to_lith_code(
+            predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY"]
+        )
+
+    predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"] = lith_code_to_index(
+        predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY"]
+    )
+    predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"] = lith_code_to_name(
+        predictions_df["FORCE_2020_LITHOFACIES_LITHOLOGY"]
+    )
+
+    models_data[model_name]["predictions_df"] = predictions_df
+    print(predictions_df.shape)
+y_true_df = models_data["y_true"]["predictions_df"]
+
+# plot titles besides y_true
+plot_titles = [
+    models_data[model]["plot_title"] for model in list(models_data.keys() - {"y_true"})
+]
+# plot
+# pandas dataframe with metrics as columns and model_names as rows
+metrics_df = pd.DataFrame(
+    columns=["accuracy", "precision", "recall", "f1", "competition_score"],
+    index=plot_titles,
+)
+
+metrics_per_lith_df = pd.DataFrame(columns=labels, index=plot_titles)
+accuracy_by_well_df = pd.DataFrame(
+    columns=plot_titles, index=sorted(predictions_df["WELL"].unique())
+)
+score_by_well_df = deepcopy(accuracy_by_well_df)
+
+cms_path = f"{tcc_path}/confusion_matrices"
+os.mkdir(cms_path)
+for model_name, model in models_data.items():
+    if model_name == "y_true":
+        continue
+
+    f1 = f1_score(
+        y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
+        model["predictions_df"]["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
+        labels=labels,
+        average="macro",
+    )
+    accuracy = accuracy_score(
+        y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
+        model["predictions_df"]["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
+    )
+    precision = precision_score(
+        y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
+        model["predictions_df"]["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
+        labels=labels,
+        average="macro",
+    )
+    recall = recall_score(
+        y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
+        model["predictions_df"]["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
+        labels=labels,
+        average="macro",
+    )
+
+    a = pd.crosstab(
+        y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
+        model["predictions_df"]["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
+    )
+    metrics_per_lith_df.loc[model["plot_title"]] = a.max(axis=1) / a.sum(axis=1)
+
+    competition_score = score(
+        y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"],
+        model["predictions_df"]["FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"],
+    )
+
+    metrics_df.loc[model["plot_title"]] = [
+        accuracy,
+        precision,
+        recall,
+        f1,
+        competition_score,
+    ]
+
+    accuracy_by_well_df.loc[:, model["plot_title"]] = y_true_df.groupby("WELL").apply(
+        lambda x: accuracy_score(
+            x["FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"],
+            model["predictions_df"].loc[x.index][
+                "FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"
+            ],
+        )
+    )
+
+    score_by_well_df.loc[:, model["plot_title"]] = y_true_df.groupby("WELL").apply(
+        lambda x: score(
+            x["FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"],
+            model["predictions_df"].loc[x.index][
+                "FORCE_2020_LITHOFACIES_LITHOLOGY_ENCODED"
+            ],
+        )
+    )
+    # metrics = utils.get_metrics(
+    #     y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"], model["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"], labels
+    # )
+
+    get_confusion_matrix(
+        model["plot_title"],
+        y_true_df["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
+        model["predictions_df"]["FORCE_2020_LITHOFACIES_LITHOLOGY_NAME"],
+        labels,
+        cms_path,
+    )
+
+    # competition_score = utils.score = utils.get_metrics(
+    #     y_true_df["regular"], model["regular"], labels
+    # )
+
+
+wells = y_true_df["WELL"].unique()
 total_wells = len(wells)
-for position, well in enumerate(facies_prediction["WELL"].unique()):
-    data = facies_prediction.loc[facies_prediction["WELL"] == well][
+wells_paths = f"{tcc_path}/wells_plots"
+os.mkdir(wells_paths)
+for position, well in enumerate(wells):
+    current_well = y_true_df.loc[y_true_df["WELL"] == well][
         ["WELL", "DEPTH_MD", "FORCE_2020_LITHOFACIES_LITHOLOGY"]
     ]
-    ax = make_plot_facies_only(data, lithology_numbers, position, total_wells)
-    axes.append(ax)
 
-for axi in axes:
-    plt.setp(ax.get_yticklabels(), visible=False)
+    depth = current_well["DEPTH_MD"].values
+    top_depth = max(depth)
+    bottom_depth = min(depth)
 
-plt.tight_layout()
-fig.subplots_adjust(wspace=0.1)
-plt.show()
-plt.savefig("test_facies.png")
-print("teste")
+    print(well)
+
+    makeplot(
+        models=models_data,
+        well_name=well,
+        depth=depth,
+        top_depth=top_depth,
+        bottom_depth=bottom_depth,
+        path=wells_paths,
+    )
+
+# save everthing to xls sheets file, each one in a different sheet
+with pd.ExcelWriter(f"{tcc_path}/results.xlsx") as writer:
+    metrics_df.to_excel(writer, sheet_name="metrics")
+    metrics_per_lith_df.to_excel(writer, sheet_name="metrics_per_lith")
+    accuracy_by_well_df.to_excel(writer, sheet_name="accuracy_by_well")
+    score_by_well_df.to_excel(writer, sheet_name="score_by_well")
 
 
-axes = []
-fig, ax_master = plt.subplots(figsize=(30, 20))
-wells = facies["WELL"].unique()
-total_wells = len(wells)
-for position, well in enumerate(facies["WELL"].unique()):
-    data = facies.loc[facies["WELL"] == well][
-        ["WELL", "DEPTH_MD", "FORCE_2020_LITHOFACIES_LITHOLOGY"]
-    ]
-    ax = make_plot_facies_only(data, lithology_numbers, position, total_wells)
-    axes.append(ax)
-
-for axi in axes:
-    plt.setp(ax.get_yticklabels(), visible=False)
-
-plt.tight_layout()
-fig.subplots_adjust(wspace=0.1)
-plt.show()
-plt.savefig("true_facies.png")
-print("teste")
+# save everthing to latex tables
+metrics_df.to_latex(f"{tcc_path}/metrics.tex", label="tab:metricas-todos-pocos")
+metrics_per_lith_df.to_latex(
+    f"{tcc_path}/metrics_per_lith.tex", label="tab:metricas-por-litologia"
+)
+accuracy_by_well_df.to_latex(
+    f"{tcc_path}/accuracy_by_well.tex", label="tab:acuracia-por-poco"
+)
+score_by_well_df.to_latex(f"{tcc_path}/score_by_well.tex", label="tab:score-por-poco")
